@@ -5,7 +5,7 @@ import { generateGeminiResponse, summarizeContext, DEFAULT_MODEL } from '@/lib/g
 export async function POST(request: Request) {
     try {
         const body = await request.json();
-        const { userPrompt, parentId, folderId, modelMetadata } = body;
+        const { userPrompt, parentId, folderId, modelMetadata, citations } = body;
 
         // Validate required fields
         if (!userPrompt) {
@@ -26,23 +26,35 @@ export async function POST(request: Request) {
             });
 
             if (parentNode) {
-                // Since we want each node to store the summary including itself, 
-                // the parent's `summary` field SHOULD contain the summary of everything up to the parent.
-                // We use this directly as the context for the current generation.
-                
-                // Fallback: If parent has no summary (legacy), we might want to generate one on the fly, 
-                // but for now let's assume valid state or start fresh.
                 historyContext = parentNode.summary; 
             }
+        }
+
+        // 1b. Format Citations (if any) and append to historyContext for this specific request
+        // Note: We don't necessarily want to bake citations into the *stored* summary unless they become part of the narrative.
+        // For now, let's treat them as "Supplemental Context" for the LLM.
+        let promptContext = historyContext || "";
+        
+        if (citations && Array.isArray(citations) && citations.length > 0) {
+            const citationText = citations.map((c: any) => 
+                `From ${c.source === 'user' ? 'User' : 'AI'} message (Node ${c.nodeId}):\n"${c.text}"`
+            ).join('\n\n');
+            
+            promptContext = `${promptContext}\n\n[Explicit User References / Citations]:\n${citationText}`;
         }
 
         // 2. Create the new node (initially without summary, or we can update it after)
         let node = await prisma.node.create({
             data: {
                 userPrompt,
-                parentId,
-                folderId,
-                modelMetadata: modelMetadata ?? {},
+                // Use relation connect or undefined (scalar parentId causing issues?)
+                parent: parentId ? { connect: { id: parentId } } : undefined,
+                // Use relation connect or undefined for folder as well to be safe
+                folder: folderId ? { connect: { id: folderId } } : undefined,
+                modelMetadata: {
+                    ...(modelMetadata ?? {}),
+                    citations: citations ?? []
+                },
                 aiResponse: null,
                 summary: null, // We will compute this AFTER we get the AI response
             },
@@ -50,12 +62,16 @@ export async function POST(request: Request) {
 
         // 3. Call Gemini API with the context
         const modelName = modelMetadata?.model || DEFAULT_MODEL;
-        const aiResponse = await generateGeminiResponse(userPrompt, modelName, historyContext || undefined);
+        // We use promptContext (history + citations) for generation
+        const aiResponse = await generateGeminiResponse(userPrompt, modelName, promptContext || undefined);
 
         // 4. Compute the NEW Summary for this node (History + Prompt + Response)
         // This ensures this node's summary includes itself, ready for its children to use.
+        // Note: We pass 'historyContext' (the clean summary) rather than 'promptContext' (summary + citations) 
+        // to avoid duplicating citation text into the summary indefinitely, unless the summarizer decides to include it.
+        // Actually, better to let the summarizer see the citations too so it understands why the AI answered that way.
         const newSummary = await summarizeContext(
-            historyContext || null,
+            promptContext || null, 
             userPrompt,
             aiResponse || null
         );

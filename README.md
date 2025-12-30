@@ -6,6 +6,9 @@ An interactive workspace application that combines LLM chat capabilities with no
 
 - **AI Chat Interface**: Interact with Google's Gemini LLM.
 - **Graph Visualization**: Visual representation of nodes and relationships using ReactFlow and Dagre layout engine.
+- **Branching Conversations**: Branch off from any point in the conversation history with context preservation.
+- **Selective Citations**: Highlight specific text from previous messages to quote and use as context for new queries.
+- **Markdown & Syntax Highlighting**: Rich text support for code blocks and formatted responses.
 - **Workspace Organization**: Folder and file tree structure for organizing content.
 - **Persistent Storage**: Data persistence using PostgreSQL (via Supabase) and Prisma ORM.
 - **Modern UI**: Clean interface built with Tailwind CSS v4, Radix UI, and Lucide icons.
@@ -17,8 +20,8 @@ An interactive workspace application that combines LLM chat capabilities with no
 - **Database**: PostgreSQL (Supabase), Prisma ORM
 - **AI Integration**: Google Generative AI (Gemini)
 - **Visualization**: ReactFlow, Dagre
-- **Styling**: Tailwind CSS, PostCSS
-- **Components**: Radix UI, React Resizable Panels
+- **Styling**: Tailwind CSS, PostCSS, Tailwind Typography
+- **Components**: Radix UI, React Resizable Panels, React Syntax Highlighter
 
 ## Prerequisites
 
