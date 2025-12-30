@@ -1,0 +1,33 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+}
+
+model Node {
+  id            String   @id @default(uuid())
+  parentId      String?
+  parent        Node?    @relation("Tree", fields: [parentId], references: [id])
+  children      Node[]   @relation("Tree")
+  folderId      String?
+  folder        Folder?  @relation(fields: [folderId], references: [id])
+  summary       String?
+  userPrompt    String
+  aiResponse    String?
+  modelMetadata Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Folder {
+  id        String   @id @default(uuid())
+  name      String
+  parentId  String?
+  parent    Folder?  @relation("FolderTree", fields: [parentId], references: [id])
+  children  Folder[] @relation("FolderTree")
+  nodes     Node[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
