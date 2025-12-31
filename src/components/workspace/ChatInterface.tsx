@@ -278,18 +278,16 @@ export function ChatInterface() {
                             {/* AI Response */}
                             {(node.aiResponse || (node.id === 'temp-id' && sending)) && (
                                 <div className="flex justify-start items-center gap-2" data-message-id={node.id} data-message-source="ai">
-                                    <div className="bg-slate-100 text-slate-800 p-3 rounded-2xl rounded-tl-sm max-w-[80%] shadow-sm">
-                                        <div className="mb-2 text-xs text-slate-400 font-semibold uppercase">
-                                            {node.modelMetadata?.model || 'AI'}
+                                    {node.id === 'temp-id' && !node.aiResponse ? (
+                                        <div className="flex items-center justify-center p-2 text-slate-400">
+                                            <Loader2 className="animate-spin" size={20} />
                                         </div>
-                                        <div className="prose prose-slate prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-pre:my-2">
-                                            {node.id === 'temp-id' && !node.aiResponse ? (
-                                                <div className="flex items-center gap-1 text-slate-400">
-                                                    <span className="animate-bounce">.</span>
-                                                    <span className="animate-bounce delay-100">.</span>
-                                                    <span className="animate-bounce delay-200">.</span>
-                                                </div>
-                                            ) : (
+                                    ) : (
+                                        <div className="bg-slate-100 text-slate-800 p-3 rounded-2xl rounded-tl-sm max-w-[80%] shadow-sm">
+                                            <div className="mb-2 text-xs text-slate-400 font-semibold uppercase">
+                                                {node.modelMetadata?.model || 'AI'}
+                                            </div>
+                                            <div className="prose prose-slate prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-pre:my-2">
                                                 <ReactMarkdown 
                                                     remarkPlugins={[remarkGfm]}
                                                     components={{
@@ -298,9 +296,9 @@ export function ChatInterface() {
                                                 >
                                                     {node.aiResponse || ''}
                                                 </ReactMarkdown>
-                                            )}
+                                            </div>
                                         </div>
-                                    </div>
+                                    )}
                                     {node.id !== 'temp-id' && (
                                         <Button 
                                             variant="ghost" 
