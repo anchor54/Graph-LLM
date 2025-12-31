@@ -9,6 +9,8 @@ interface WorkspaceContextType {
     setActiveNodeId: (id: string | null) => void;
     graphRefreshTrigger: number;
     triggerGraphRefresh: () => void;
+    folderRefreshTrigger: number;
+    triggerFolderRefresh: () => void;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
@@ -17,9 +19,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
     const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
     const [graphRefreshTrigger, setGraphRefreshTrigger] = useState(0);
+    const [folderRefreshTrigger, setFolderRefreshTrigger] = useState(0);
 
     const triggerGraphRefresh = () => {
         setGraphRefreshTrigger(prev => prev + 1);
+    };
+
+    const triggerFolderRefresh = () => {
+        setFolderRefreshTrigger(prev => prev + 1);
     };
 
     return (
@@ -31,6 +38,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
                 setActiveNodeId,
                 graphRefreshTrigger,
                 triggerGraphRefresh,
+                folderRefreshTrigger,
+                triggerFolderRefresh,
             }}
         >
             {children}

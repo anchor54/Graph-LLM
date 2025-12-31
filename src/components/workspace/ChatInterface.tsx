@@ -47,7 +47,7 @@ const CodeBlock = ({ inline, className, children, isDark }: any) => {
 };
 
 export function ChatInterface() {
-    const { activeNodeId, setActiveNodeId, triggerGraphRefresh } = useWorkspace();
+    const { activeNodeId, setActiveNodeId, triggerGraphRefresh, activeFolderId } = useWorkspace();
     const [messages, setMessages] = useState<Node[]>([]);
     const [loading, setLoading] = useState(false);
     const [inputText, setInputText] = useState('');
@@ -127,7 +127,7 @@ export function ChatInterface() {
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             parentId: messages.length > 0 ? messages[messages.length - 1].id : null,
-            folderId: null,
+            folderId: messages.length > 0 ? messages[messages.length - 1].folderId : activeFolderId,
             modelMetadata: { model: selectedModel },
             citations: activeCitations,
             summary: null
@@ -137,9 +137,9 @@ export function ChatInterface() {
         setActiveCitations([]); // Clear citations
 
         try {
-            const activeMessage = messages[messages.length - 1];
+            const activeMessage = messages.length > 0 ? messages[messages.length - 1] : null;
             const parentId = activeMessage?.id || null;
-            const folderId = activeMessage?.folderId || null;
+            const folderId = activeMessage?.folderId || activeFolderId || null;
 
             const res = await fetch('/api/nodes', {
                 method: 'POST',
