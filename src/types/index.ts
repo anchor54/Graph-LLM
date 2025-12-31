@@ -15,6 +15,7 @@ export interface Node {
     userPrompt: string;
     aiResponse: string | null;
     modelMetadata: any;
+    citations?: any[];
     createdAt: string;
     updatedAt: string;
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { generateGeminiResponse, summarizeContext, DEFAULT_MODEL } from '@/lib/gemini';
+import { generateGeminiResponse, summarizeContext, DEFAULT_MODEL, streamGeminiResponse } from '@/lib/gemini';
 
 export async function POST(request: Request) {
     try {
@@ -13,10 +13,6 @@ export async function POST(request: Request) {
         }
 
         // 1. Fetch Parent Node to get context
-        // logic: Each node stores the summary of the conversation UP TO AND INCLUDING itself.
-        // So when creating a new node, we fetch the parent's summary and use it as the "history context".
-        // Then, we generate the NEW summary (parent summary + current prompt + current response) and store it on the NEW node.
-
         let historyContext = null;
         let parentNode = null;
 
@@ -30,9 +26,7 @@ export async function POST(request: Request) {
             }
         }
 
-        // 1b. Format Citations (if any) and append to historyContext for this specific request
-        // Note: We don't necessarily want to bake citations into the *stored* summary unless they become part of the narrative.
-        // For now, let's treat them as "Supplemental Context" for the LLM.
+        // 1b. Format Citations
         let promptContext = historyContext || "";
         
         if (citations && Array.isArray(citations) && citations.length > 0) {
@@ -43,8 +37,8 @@ export async function POST(request: Request) {
             promptContext = `${promptContext}\n\n[Explicit User References / Citations]:\n${citationText}`;
         }
 
-        // 2. Create the new node (initially without summary, or we can update it after)
-        let node = await prisma.node.create({
+        // 2. Create the new node
+        const node = await prisma.node.create({
             data: {
                 userPrompt,
                 // Use relation connect or undefined (scalar parentId causing issues?)
@@ -60,32 +54,64 @@ export async function POST(request: Request) {
             },
         });
 
-        // 3. Call Gemini API with the context
+        // 3. Setup Streaming Response
         const modelName = modelMetadata?.model || DEFAULT_MODEL;
-        // We use promptContext (history + citations) for generation
-        const aiResponse = await generateGeminiResponse(userPrompt, modelName, promptContext || undefined);
+        const stream = streamGeminiResponse(userPrompt, modelName, promptContext || undefined);
+        
+        const encoder = new TextEncoder();
+        
+        // Return a streaming response immediately
+        return new Response(new ReadableStream({
+            async start(controller) {
+                let fullAiResponse = "";
+                
+                // Send initial node ID to client so it can update the temp ID
+                const initialData = JSON.stringify({ nodeId: node.id });
+                controller.enqueue(encoder.encode(`data: ${initialData}\n\n`));
 
-        // 4. Compute the NEW Summary for this node (History + Prompt + Response)
-        // This ensures this node's summary includes itself, ready for its children to use.
-        // Note: We pass 'historyContext' (the clean summary) rather than 'promptContext' (summary + citations) 
-        // to avoid duplicating citation text into the summary indefinitely, unless the summarizer decides to include it.
-        // Actually, better to let the summarizer see the citations too so it understands why the AI answered that way.
-        const newSummary = await summarizeContext(
-            promptContext || null, 
-            userPrompt,
-            aiResponse || null
-        );
+                try {
+                    for await (const chunk of stream) {
+                        fullAiResponse += chunk;
+                        const data = JSON.stringify({ chunk });
+                        controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+                    }
+                    
+                    // Stream finished
+                    
+                    // 4. Compute Summary & Update DB (Background async work effectively)
+                    // Note: We need to do this BEFORE closing the stream ideally, or just ensure it completes.
+                    // Since this is server-side, we can just await it here before closing controller.
+                    
+                    const newSummary = await summarizeContext(
+                        promptContext || null, 
+                        userPrompt,
+                        fullAiResponse || null
+                    );
 
-        // 5. Update node with response and the new inclusive summary
-        node = await prisma.node.update({
-            where: { id: node.id },
-            data: { 
-                aiResponse,
-                summary: newSummary 
+                    await prisma.node.update({
+                        where: { id: node.id },
+                        data: { 
+                            aiResponse: fullAiResponse,
+                            summary: newSummary 
+                        }
+                    });
+
+                } catch (e) {
+                    console.error("Streaming error:", e);
+                    const errorData = JSON.stringify({ error: "Stream failed" });
+                    controller.enqueue(encoder.encode(`data: ${errorData}\n\n`));
+                } finally {
+                    controller.close();
+                }
             }
+        }), {
+            headers: {
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+            },
         });
 
-        return NextResponse.json(node);
     } catch (error) {
         console.error('Error creating node:', error);
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });

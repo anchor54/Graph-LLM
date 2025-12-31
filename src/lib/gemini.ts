@@ -71,6 +71,41 @@ export async function generateGeminiResponse(
     }
 }
 
+export async function* streamGeminiResponse(
+    prompt: string,
+    modelName: string = DEFAULT_MODEL,
+    context?: string
+) {
+    if (!ai) {
+        if (!process.env.GEMINI_API_KEY) {
+            yield "Error: GEMINI_API_KEY is not set in environment variables.";
+            return;
+        }
+        ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    }
+
+    try {
+        let fullPrompt = prompt;
+        if (context) {
+            fullPrompt = `Previous Conversation Summary:\n${context}\n\nUser Message:\n${prompt}`;
+        }
+
+        const stream = await ai.models.generateContentStream({
+            model: modelName,
+            contents: fullPrompt,
+        });
+
+        for await (const chunk of stream) {
+            if (chunk.text) {
+                yield chunk.text;
+            }
+        }
+    } catch (error) {
+        console.error('Error calling Gemini API:', error);
+        yield `Error calling Gemini API: ${error instanceof Error ? error.message : 'Unknown error'}`;
+    }
+}
+
 export async function summarizeContext(
     existingSummary: string | null,
     userPrompt: string,
@@ -95,7 +130,7 @@ export async function summarizeContext(
         AI: ${aiResponse || "No response yet."}
 
         Please provide a concise updated summary of the entire conversation up to this point, incorporating the new exchange. 
-        Keep the user prompt and the ai response in the summary. Keep it brief but preserve key details and context.
+        Keep it brief but preserve key details and context.
         `;
 
         // Use a fast model for summarization

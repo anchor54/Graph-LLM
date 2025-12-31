@@ -56,6 +56,7 @@ export function ChatInterface() {
     const [availableModels, setAvailableModels] = useState<{ name: string, displayName: string }[]>([]);
     const [modelsLoading, setModelsLoading] = useState(true);
     const [activeCitations, setActiveCitations] = useState<Citation[]>([]);
+    const [streamedResponse, setStreamedResponse] = useState('');
     const scrollRef = useRef<HTMLDivElement>(null);
 
     // Fetch available models on mount
@@ -108,42 +109,115 @@ export function ChatInterface() {
         if (scrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }
-    }, [messages]);
+    }, [messages, streamedResponse]);
 
     const handleSend = async () => {
         if (!inputText.trim()) return;
         setSending(true);
+        setStreamedResponse('');
+
+        const userPrompt = inputText;
+        setInputText(''); // Clear input immediately
+
+        // Optimistically add user message to UI
+        const optimisticNode: Node = {
+            id: 'temp-id', // Temporary ID
+            userPrompt: userPrompt,
+            aiResponse: '', // Empty initially
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            parentId: messages.length > 0 ? messages[messages.length - 1].id : null,
+            folderId: null,
+            modelMetadata: { model: selectedModel },
+            citations: activeCitations,
+            summary: null
+        } as any;
+
+        setMessages(prev => [...prev, optimisticNode]);
+        setActiveCitations([]); // Clear citations
 
         try {
             const activeMessage = messages[messages.length - 1];
             const parentId = activeMessage?.id || null;
-            // If we are starting a new chat (parentId is null), we can optionally assign a folder if one is selected in context (not implemented yet).
-            // For now, root chats go to root folder (null) unless we track activeFolderId.
             const folderId = activeMessage?.folderId || null;
 
             const res = await fetch('/api/nodes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    userPrompt: inputText,
+                    userPrompt,
                     parentId,
                     folderId,
                     modelMetadata: { model: selectedModel },
-                    citations: activeCitations
+                    citations: optimisticNode.citations
                 }),
             });
 
-            if (res.ok) {
-                const newNode: Node = await res.json();
-                setInputText('');
-                setActiveCitations([]); // Clear citations
-                setActiveNodeId(newNode.id);
-                triggerGraphRefresh();
+            if (!res.ok) {
+                console.error('Failed to send message');
+                setSending(false);
+                return;
             }
+
+            const reader = res.body?.getReader();
+            const decoder = new TextDecoder();
+            let aiResponse = '';
+            let nodeId = '';
+
+            if (reader) {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n\n');
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.substring(6));
+                                if (data.chunk) {
+                                    aiResponse += data.chunk;
+                                    setStreamedResponse(aiResponse);
+                                    
+                                    // Update the optimistic node with streamed content
+                                    setMessages(prev => {
+                                        const newMessages = [...prev];
+                                        const lastMsg = newMessages[newMessages.length - 1];
+                                        if (lastMsg.id === 'temp-id' || lastMsg.id === nodeId) {
+                                            lastMsg.aiResponse = aiResponse;
+                                            if (nodeId) lastMsg.id = nodeId; // Ensure ID is updated if we have it
+                                        }
+                                        return newMessages;
+                                    });
+                                }
+                                if (data.nodeId) {
+                                    nodeId = data.nodeId;
+                                    // Update ID in state
+                                    setMessages(prev => {
+                                        const newMessages = [...prev];
+                                        const lastMsg = newMessages[newMessages.length - 1];
+                                        if (lastMsg.id === 'temp-id') {
+                                            lastMsg.id = nodeId;
+                                        }
+                                        return newMessages;
+                                    });
+                                    setActiveNodeId(nodeId);
+                                }
+                            } catch (e) {
+                                console.error('Error parsing stream chunk', e);
+                            }
+                        }
+                    }
+                }
+            }
+
+            triggerGraphRefresh();
         } catch (error) {
             console.error('Failed to send message', error);
         } finally {
             setSending(false);
+            setStreamedResponse('');
         }
     };
 
@@ -202,32 +276,42 @@ export function ChatInterface() {
                             </div>
 
                             {/* AI Response */}
-                            {node.aiResponse && (
+                            {(node.aiResponse || (node.id === 'temp-id' && sending)) && (
                                 <div className="flex justify-start items-center gap-2" data-message-id={node.id} data-message-source="ai">
                                     <div className="bg-slate-100 text-slate-800 p-3 rounded-2xl rounded-tl-sm max-w-[80%] shadow-sm">
                                         <div className="mb-2 text-xs text-slate-400 font-semibold uppercase">
                                             {node.modelMetadata?.model || 'AI'}
                                         </div>
                                         <div className="prose prose-slate prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-pre:my-2">
-                                            <ReactMarkdown 
-                                                remarkPlugins={[remarkGfm]}
-                                                components={{
-                                                    code: (props) => <CodeBlock {...props} isDark={true} />
-                                                }}
-                                            >
-                                                {node.aiResponse}
-                                            </ReactMarkdown>
+                                            {node.id === 'temp-id' && !node.aiResponse ? (
+                                                <div className="flex items-center gap-1 text-slate-400">
+                                                    <span className="animate-bounce">.</span>
+                                                    <span className="animate-bounce delay-100">.</span>
+                                                    <span className="animate-bounce delay-200">.</span>
+                                                </div>
+                                            ) : (
+                                                <ReactMarkdown 
+                                                    remarkPlugins={[remarkGfm]}
+                                                    components={{
+                                                        code: (props) => <CodeBlock {...props} isDark={true} />
+                                                    }}
+                                                >
+                                                    {node.aiResponse || ''}
+                                                </ReactMarkdown>
+                                            )}
                                         </div>
                                     </div>
-                                    <Button 
-                                        variant="ghost" 
-                                        size="icon" 
-                                        className="opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8 text-slate-400 hover:text-blue-600"
-                                        onClick={() => handleBranch(node.id)}
-                                        title="Branch from here"
-                                    >
-                                        <GitBranch size={16} />
-                                    </Button>
+                                    {node.id !== 'temp-id' && (
+                                        <Button 
+                                            variant="ghost" 
+                                            size="icon" 
+                                            className="opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8 text-slate-400 hover:text-blue-600"
+                                            onClick={() => handleBranch(node.id)}
+                                            title="Branch from here"
+                                        >
+                                            <GitBranch size={16} />
+                                        </Button>
+                                    )}
                                 </div>
                             )}
                         </div>
