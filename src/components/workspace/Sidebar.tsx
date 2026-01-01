@@ -3,8 +3,10 @@
 import React, { useState } from 'react';
 import { FolderTree } from './FolderTree';
 import { Button } from '@/components/ui/button';
-import { FolderPlus, MessageSquarePlus } from 'lucide-react';
+import { FolderPlus, MessageSquarePlus, LogOut } from 'lucide-react';
 import { useWorkspace } from '@/context/WorkspaceContext';
+import { useRouter } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
 import {
     Dialog,
     DialogContent,
@@ -19,6 +21,8 @@ export function Sidebar() {
     const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
     const [newFolderName, setNewFolderName] = useState('');
     const [isCreating, setIsCreating] = useState(false);
+    const router = useRouter();
+    const supabase = createClient();
 
     const handleCreateFolder = async () => {
         if (!newFolderName.trim()) return;
@@ -45,9 +49,15 @@ export function Sidebar() {
         }
     };
 
+    const handleLogout = async () => {
+        await supabase.auth.signOut();
+        router.push('/login');
+        router.refresh();
+    };
+
     return (
-        <div className="h-full bg-slate-50 border-r p-4 overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
+        <div className="h-full bg-slate-50 border-r flex flex-col p-4">
+            <div className="flex items-center justify-between mb-4 shrink-0">
                 <h2 className="font-semibold">Folders</h2>
                 <div className="flex gap-1">
                     <Button
@@ -73,7 +83,17 @@ export function Sidebar() {
                     </Button>
                 </div>
             </div>
-            <FolderTree />
+            
+            <div className="flex-1 overflow-y-auto min-h-0">
+                <FolderTree />
+            </div>
+
+            <div className="mt-4 pt-4 border-t shrink-0">
+                <Button variant="ghost" className="w-full justify-start gap-2 text-red-600 hover:text-red-700 hover:bg-red-50" onClick={handleLogout}>
+                    <LogOut size={16} />
+                    Sign Out
+                </Button>
+            </div>
 
             <Dialog open={isCreateFolderOpen} onOpenChange={setIsCreateFolderOpen}>
                 <DialogContent>

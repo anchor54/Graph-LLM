@@ -145,7 +145,14 @@ export function ChatInterface() {
 
         try {
             const activeMessage = messages.length > 0 ? messages[messages.length - 1] : null;
-            const parentId = activeMessage?.id || null;
+            let parentId = activeMessage?.id || null;
+
+            // Ensure we don't use a temporary ID as the parent
+            if (parentId === 'temp-id') {
+                const validParent = [...messages].reverse().find(m => m.id !== 'temp-id');
+                parentId = validParent?.id || null;
+            }
+
             const folderId = activeMessage?.folderId || activeFolderId || null;
 
             const res = await fetch('/api/nodes', {
@@ -161,7 +168,8 @@ export function ChatInterface() {
             });
 
             if (!res.ok) {
-                console.error('Failed to send message');
+                const errorText = await res.text();
+                console.error('Failed to send message. Status:', res.status, 'Response:', errorText);
                 setSending(false);
                 return;
             }

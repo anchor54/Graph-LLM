@@ -13,20 +13,20 @@ export default function Home() {
   return (
     <WorkspaceProvider>
       <div className="h-screen w-full flex flex-col overflow-hidden">
-        <ResizablePanelGroup direction="horizontal" className="flex-1">
-          <ResizablePanel defaultSize={20} minSize={15} maxSize={30}>
+        <ResizablePanelGroup direction="horizontal" className="flex-1" id="main-group">
+          <ResizablePanel defaultSize={20} minSize={15} maxSize={30} id="sidebar-panel">
             <Sidebar />
           </ResizablePanel>
 
-          <ResizableHandle />
+          <ResizableHandle id="sidebar-handle" />
 
-          <ResizablePanel defaultSize={50} minSize={30}>
+          <ResizablePanel defaultSize={50} minSize={30} id="chat-panel">
             <ChatInterface />
           </ResizablePanel>
 
-          <ResizableHandle />
+          <ResizableHandle id="chat-handle" />
 
-          <ResizablePanel defaultSize={30} minSize={20}>
+          <ResizablePanel defaultSize={30} minSize={20} id="graph-panel">
             <GraphVisualization />
           </ResizablePanel>
         </ResizablePanelGroup>

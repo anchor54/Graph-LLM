@@ -1,9 +1,17 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { generateGeminiResponse, summarizeContext, DEFAULT_MODEL, streamGeminiResponse } from '@/lib/gemini';
+import { createClient } from '@/lib/supabase/server';
 
 export async function POST(request: Request) {
     try {
+        const supabase = await createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+
+        if (!user) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
         const body = await request.json();
         const { userPrompt, parentId, folderId, modelMetadata, citations } = body;
 
@@ -12,18 +20,27 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'User prompt is required' }, { status: 400 });
         }
 
+        // Ensure user exists in Prisma
+        await prisma.user.upsert({
+            where: { id: user.id },
+            update: {},
+            create: { id: user.id, email: user.email! }
+        });
+
         // 1. Fetch Parent Node to get context
         let historyContext = null;
         let parentNode = null;
 
         if (parentId) {
-            parentNode = await prisma.node.findUnique({
-                where: { id: parentId }
+            parentNode = await prisma.node.findFirst({
+                where: { id: parentId, userId: user.id }
             });
 
-            if (parentNode) {
-                historyContext = parentNode.summary; 
+            if (!parentNode) {
+                return NextResponse.json({ error: 'Parent node not found' }, { status: 404 });
             }
+
+            historyContext = parentNode.summary; 
         }
 
         // 1b. Format Citations
@@ -41,10 +58,9 @@ export async function POST(request: Request) {
         const node = await prisma.node.create({
             data: {
                 userPrompt,
-                // Use relation connect or undefined (scalar parentId causing issues?)
-                parent: parentId ? { connect: { id: parentId } } : undefined,
-                // Use relation connect or undefined for folder as well to be safe
-                folder: folderId ? { connect: { id: folderId } } : undefined,
+                userId: user.id,
+                parentId: parentId || undefined,
+                folderId: folderId || undefined,
                 modelMetadata: {
                     ...(modelMetadata ?? {}),
                     citations: citations ?? []
@@ -119,13 +135,20 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     // Simple list, maybe filter by folderId?
     const { searchParams } = new URL(request.url);
     const folderId = searchParams.get('folderId');
     const rootsOnly = searchParams.get('rootsOnly') === 'true';
 
     try {
-        const where: any = {};
+        const where: any = { userId: user.id };
         if (folderId) where.folderId = folderId;
         if (rootsOnly) where.parentId = null;
 
@@ -142,6 +165,13 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     try {
         const body = await request.json();
         const { id, folderId, parentId } = body;
@@ -155,12 +185,20 @@ export async function PATCH(request: Request) {
         // Allow parentId to be null (to cut node) or a string
         if (parentId !== undefined) data.parentId = parentId;
 
-        const node = await prisma.node.update({
+        const node = await prisma.node.findFirst({
+            where: { id, userId: user.id }
+        });
+
+        if (!node) {
+            return NextResponse.json({ error: 'Node not found or unauthorized' }, { status: 404 });
+        }
+
+        const updatedNode = await prisma.node.update({
             where: { id },
             data,
         });
 
-        return NextResponse.json(node);
+        return NextResponse.json(updatedNode);
     } catch (error) {
         console.error('Error updating node:', error);
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });

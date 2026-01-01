@@ -1,6 +1,7 @@
 
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { createClient } from '@/lib/supabase/server';
 
 export async function GET(
     request: Request,
@@ -9,10 +10,17 @@ export async function GET(
     const params = await props.params;
     const nodeId = params.nodeId;
 
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     try {
-        // Basic verification the node exists
-        const rootNode = await prisma.node.findUnique({
-            where: { id: nodeId },
+        // Basic verification the node exists and belongs to user
+        const rootNode = await prisma.node.findFirst({
+            where: { id: nodeId, userId: user.id },
         });
 
         if (!rootNode) {
@@ -28,13 +36,14 @@ export async function GET(
                 WITH RECURSIVE "Ancestors" AS (
                     SELECT "id", "parentId", "folderId", "summary", "userPrompt", "aiResponse", "modelMetadata", "createdAt", "updatedAt"
                     FROM "Node"
-                    WHERE "id" = ${nodeId}
+                    WHERE "id" = ${nodeId} AND "userId" = ${user.id}
                     
                     UNION ALL
                     
                     SELECT p."id", p."parentId", p."folderId", p."summary", p."userPrompt", p."aiResponse", p."modelMetadata", p."createdAt", p."updatedAt"
                     FROM "Node" p
                     JOIN "Ancestors" c ON c."parentId" = p."id"
+                    WHERE p."userId" = ${user.id}
                 )
                 SELECT * FROM "Ancestors"
             `;
@@ -44,13 +53,14 @@ export async function GET(
                 WITH RECURSIVE "Tree" AS (
                     SELECT "id", "parentId", "folderId", "summary", "userPrompt", "aiResponse", "modelMetadata", "createdAt", "updatedAt"
                     FROM "Node"
-                    WHERE "id" = ${nodeId}
+                    WHERE "id" = ${nodeId} AND "userId" = ${user.id}
                     
                     UNION ALL
                     
                     SELECT c."id", c."parentId", c."folderId", c."summary", c."userPrompt", c."aiResponse", c."modelMetadata", c."createdAt", c."updatedAt"
                     FROM "Node" c
                     JOIN "Tree" p ON c."parentId" = p."id"
+                    WHERE c."userId" = ${user.id}
                 )
                 SELECT * FROM "Tree"
             `;
