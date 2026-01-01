@@ -10,6 +10,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus, vs } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { Skeleton } from '@/components/ui/skeleton';
 import { SelectionMenu } from './SelectionMenu';
 import { CitationsDisplay, Citation } from './CitationsDisplay';
 
@@ -218,6 +219,7 @@ export function ChatInterface() {
                                         return newMessages;
                                     });
                                     setActiveNodeId(nodeId);
+                                    triggerGraphRefresh(); // Refresh tree to show new chat immediately
                                 }
                             } catch (e) {
                                 console.error('Error parsing stream chunk', e);
@@ -282,8 +284,12 @@ export function ChatInterface() {
                         <p>Start a new conversation</p>
                     </div>
                 ) : (
-                    messages.map((node) => (
-                        <div key={node.id} className="space-y-4 group">
+                    messages.map((node, index) => {
+                        const isLast = index === messages.length - 1;
+                        const isGenerating = isLast && sending;
+
+                        return (
+                            <div key={node.id} className="space-y-4 group">
                             {/* User Message */}
                             <div className="flex flex-col items-end gap-1" data-message-id={node.id} data-message-source="user">
                                 {/* Display Citations if this message used them */}
@@ -313,11 +319,15 @@ export function ChatInterface() {
                             </div>
 
                             {/* AI Response */}
-                            {(node.aiResponse || (node.id === 'temp-id' && sending)) && (
+                            {(node.aiResponse || isGenerating) && (
                                 <div className="flex justify-start items-center gap-2" data-message-id={node.id} data-message-source="ai">
-                                    {node.id === 'temp-id' && !node.aiResponse ? (
-                                        <div className="flex items-center justify-center p-2 text-slate-400">
-                                            <Loader2 className="animate-spin" size={20} />
+                                    {isGenerating && !node.aiResponse ? (
+                                        <div className="bg-slate-100 text-slate-800 p-3 rounded-2xl rounded-tl-sm w-[80%] shadow-sm">
+                                            <div className="space-y-2">
+                                                <Skeleton className="h-4 w-[90%] bg-slate-200" />
+                                                <Skeleton className="h-4 w-[75%] bg-slate-200" />
+                                                <Skeleton className="h-4 w-[50%] bg-slate-200" />
+                                            </div>
                                         </div>
                                     ) : (
                                         <div className="bg-slate-100 text-slate-800 p-3 rounded-2xl rounded-tl-sm max-w-[80%] shadow-sm">
@@ -364,7 +374,8 @@ export function ChatInterface() {
                                 </div>
                             )}
                         </div>
-                    ))
+                        );
+                    })
                 )}
                 {loading && <div className="flex justify-center p-4"><Loader2 className="animate-spin text-slate-400" /></div>}
             </div>

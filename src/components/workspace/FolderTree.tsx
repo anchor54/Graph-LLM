@@ -2,8 +2,9 @@
 
 import React, { useEffect, useState } from 'react';
 import { Folder, Node } from '@/types';
-import { ChevronRight, ChevronDown, Folder as FolderIcon, MessageSquare, MoreHorizontal, FolderPlus, MessageSquarePlus } from 'lucide-react';
+import { ChevronRight, ChevronDown, Folder as FolderIcon, MessageSquare, MoreHorizontal, FolderPlus, MessageSquarePlus, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useWorkspace } from '@/context/WorkspaceContext';
 import {
     DropdownMenu,
@@ -375,11 +376,11 @@ function DraggableChatItem({ node, onSelect }: { node: Node, onSelect: (id: stri
     const { activeNodeId } = useWorkspace();
     const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
         id: node.id,
-        data: { type: 'CHAT', id: node.id, name: node.userPrompt, folderId: node.folderId }
+        data: { type: 'CHAT', id: node.id, name: node.summary || node.userPrompt, folderId: node.folderId }
     });
 
     if (isDragging) {
-         return <div ref={setNodeRef} className="opacity-50 ml-2 p-1.5 text-sm text-slate-400 border border-dashed border-slate-300 rounded mb-1">{node.userPrompt}</div>
+         return <div ref={setNodeRef} className="opacity-50 ml-2 p-1.5 text-sm text-slate-400 border border-dashed border-slate-300 rounded mb-1">{node.summary || "New Chat"}</div>
     }
 
     const isActive = activeNodeId === node.id;
@@ -403,8 +404,17 @@ function DraggableChatItem({ node, onSelect }: { node: Node, onSelect: (id: stri
                 onSelect(node.id);
             }}
         >
-            <MessageSquare size={14} className={cn("opacity-70", isActive && "text-blue-700 opacity-100")} />
-            <span className="truncate">{node.userPrompt}</span>
+            {node.summary ? (
+                <>
+                    <MessageSquare size={14} className={cn("opacity-70 flex-shrink-0", isActive && "text-blue-700 opacity-100")} />
+                    <span className="truncate">{node.summary}</span>
+                </>
+            ) : (
+                <div className="flex items-center gap-2 w-full">
+                    <Loader2 size={14} className="animate-spin text-slate-400 flex-shrink-0" />
+                    <Skeleton className="h-4 w-24 bg-slate-200" />
+                </div>
+            )}
         </div>
     );
 }
