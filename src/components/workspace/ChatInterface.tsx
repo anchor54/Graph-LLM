@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useWorkspace } from '@/context/WorkspaceContext';
 import { Node } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Send, User, Bot, Loader2, GitBranch, Quote } from 'lucide-react';
+import { Send, User, Bot, Loader2, GitBranch, Quote, MoreHorizontal, Scissors } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -20,6 +20,13 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select"
+
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 // Custom code component for syntax highlighting
 const CodeBlock = ({ inline, className, children, isDark }: any) => {
@@ -47,7 +54,7 @@ const CodeBlock = ({ inline, className, children, isDark }: any) => {
 };
 
 export function ChatInterface() {
-    const { activeNodeId, setActiveNodeId, triggerGraphRefresh, activeFolderId } = useWorkspace();
+    const { activeNodeId, setActiveNodeId, graphRefreshTrigger, triggerGraphRefresh, triggerFolderRefresh, activeFolderId } = useWorkspace();
     const [messages, setMessages] = useState<Node[]>([]);
     const [loading, setLoading] = useState(false);
     const [inputText, setInputText] = useState('');
@@ -102,7 +109,7 @@ export function ChatInterface() {
         };
 
         fetchHistory();
-    }, [activeNodeId]);
+    }, [activeNodeId, graphRefreshTrigger]);
 
     // Scroll to bottom
     useEffect(() => {
@@ -225,6 +232,28 @@ export function ChatInterface() {
         setActiveNodeId(nodeId);
     };
 
+    const handleCutToNewChat = async (nodeId: string) => {
+        try {
+            const res = await fetch('/api/nodes', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: nodeId,
+                    parentId: null
+                }),
+            });
+
+            if (res.ok) {
+                triggerFolderRefresh();
+                triggerGraphRefresh();
+            } else {
+                console.error('Failed to cut node');
+            }
+        } catch (error) {
+            console.error('Error cutting node:', error);
+        }
+    };
+
     const handleQuote = (text: string, nodeId: string, source: 'user' | 'ai') => {
         setActiveCitations(prev => [...prev, { text, nodeId, source }]);
     };
@@ -300,15 +329,29 @@ export function ChatInterface() {
                                         </div>
                                     )}
                                     {node.id !== 'temp-id' && (
-                                        <Button 
-                                            variant="ghost" 
-                                            size="icon" 
-                                            className="opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8 text-slate-400 hover:text-blue-600"
-                                            onClick={() => handleBranch(node.id)}
-                                            title="Branch from here"
-                                        >
-                                            <GitBranch size={16} />
-                                        </Button>
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <Button 
+                                                    variant="ghost" 
+                                                    size="icon" 
+                                                    className="opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8 text-slate-400 hover:text-blue-600"
+                                                >
+                                                    <MoreHorizontal size={16} />
+                                                </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="start">
+                                                <DropdownMenuItem onClick={() => handleBranch(node.id)}>
+                                                    <GitBranch className="mr-2 h-4 w-4" />
+                                                    Branch from here
+                                                </DropdownMenuItem>
+                                                {node.parentId && (
+                                                    <DropdownMenuItem onClick={() => handleCutToNewChat(node.id)}>
+                                                        <Scissors className="mr-2 h-4 w-4" />
+                                                        Cut to new chat
+                                                    </DropdownMenuItem>
+                                                )}
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
                                     )}
                                 </div>
                             )}

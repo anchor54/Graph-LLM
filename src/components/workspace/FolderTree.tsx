@@ -372,6 +372,7 @@ function FolderItem({
 }
 
 function DraggableChatItem({ node, onSelect }: { node: Node, onSelect: (id: string) => void }) {
+    const { activeNodeId } = useWorkspace();
     const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
         id: node.id,
         data: { type: 'CHAT', id: node.id, name: node.userPrompt, folderId: node.folderId }
@@ -381,12 +382,19 @@ function DraggableChatItem({ node, onSelect }: { node: Node, onSelect: (id: stri
          return <div ref={setNodeRef} className="opacity-50 ml-2 p-1.5 text-sm text-slate-400 border border-dashed border-slate-300 rounded mb-1">{node.userPrompt}</div>
     }
 
+    const isActive = activeNodeId === node.id;
+
     return (
         <div
             ref={setNodeRef}
             {...listeners}
             {...attributes}
-            className="flex items-center gap-2 p-1.5 rounded hover:bg-blue-50 cursor-pointer text-sm text-slate-700 ml-2"
+            className={cn(
+                "flex items-center gap-2 p-1.5 rounded cursor-pointer text-sm ml-2",
+                isActive 
+                    ? "bg-blue-100 text-blue-900 font-medium" 
+                    : "text-slate-700 hover:bg-blue-50"
+            )}
             onClick={(e) => {
                 // Prevent drag start if just clicking, but dnd-kit handles this well usually. 
                 // e.stopPropagation here might block drag.
@@ -395,7 +403,7 @@ function DraggableChatItem({ node, onSelect }: { node: Node, onSelect: (id: stri
                 onSelect(node.id);
             }}
         >
-            <MessageSquare size={14} className="opacity-70" />
+            <MessageSquare size={14} className={cn("opacity-70", isActive && "text-blue-700 opacity-100")} />
             <span className="truncate">{node.userPrompt}</span>
         </div>
     );

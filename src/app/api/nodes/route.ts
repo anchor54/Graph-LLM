@@ -144,15 +144,20 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
     try {
         const body = await request.json();
-        const { id, folderId } = body;
+        const { id, folderId, parentId } = body;
 
         if (!id) {
             return NextResponse.json({ error: 'Node ID is required' }, { status: 400 });
         }
 
+        const data: any = {};
+        if (folderId !== undefined) data.folderId = folderId;
+        // Allow parentId to be null (to cut node) or a string
+        if (parentId !== undefined) data.parentId = parentId;
+
         const node = await prisma.node.update({
             where: { id },
-            data: { folderId },
+            data,
         });
 
         return NextResponse.json(node);
