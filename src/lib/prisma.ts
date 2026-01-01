@@ -3,6 +3,7 @@ import { PrismaPg } from '@prisma/adapter-pg'
 import { Pool } from 'pg'
 
 const prismaClientSingleton = () => {
+    // Uses the transaction pooler for the application connection
     const connectionString = process.env.DATABASE_URL
     const pool = new Pool({ connectionString })
     const adapter = new PrismaPg(pool)
