@@ -37,3 +37,24 @@ export async function GET() {
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
     }
 }
+
+export async function PATCH(request: Request) {
+    try {
+        const body = await request.json();
+        const { id, parentId } = body;
+
+        if (!id) {
+            return NextResponse.json({ error: 'Folder ID is required' }, { status: 400 });
+        }
+
+        const folder = await prisma.folder.update({
+            where: { id },
+            data: { parentId },
+        });
+
+        return NextResponse.json(folder);
+    } catch (error) {
+        console.error('Error updating folder:', error);
+        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    }
+}

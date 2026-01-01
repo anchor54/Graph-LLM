@@ -140,3 +140,24 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
     }
 }
+
+export async function PATCH(request: Request) {
+    try {
+        const body = await request.json();
+        const { id, folderId } = body;
+
+        if (!id) {
+            return NextResponse.json({ error: 'Node ID is required' }, { status: 400 });
+        }
+
+        const node = await prisma.node.update({
+            where: { id },
+            data: { folderId },
+        });
+
+        return NextResponse.json(node);
+    } catch (error) {
+        console.error('Error updating node:', error);
+        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    }
+}
