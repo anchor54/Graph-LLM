@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Folder, Node } from '@/types';
-import { ChevronRight, ChevronDown, Folder as FolderIcon, MessageSquare, MoreHorizontal, FolderPlus, MessageSquarePlus, Loader2 } from 'lucide-react';
+import { ChevronRight, ChevronDown, Folder as FolderIcon, MessageSquare, MoreHorizontal, FolderPlus, MessageSquarePlus, Loader2, Edit2, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useWorkspace } from '@/context/WorkspaceContext';
@@ -11,6 +11,7 @@ import {
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuTrigger,
+    DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
     Dialog,
@@ -18,6 +19,7 @@ import {
     DialogHeader,
     DialogTitle,
     DialogFooter,
+    DialogDescription,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -207,6 +209,24 @@ function RootDroppable({ children }: { children: React.ReactNode }) {
     );
 }
 
+function isChatInFolder(folder: Folder, chatId: string, chatsMap: Map<string, Node[]>): boolean {
+    // Check if chat is in current folder
+    const chatsInThisFolder = chatsMap.get(folder.id);
+    if (chatsInThisFolder && chatsInThisFolder.some(c => c.id === chatId)) {
+        return true;
+    }
+
+    // Check subfolders
+    if (folder.children) {
+        for (const child of folder.children) {
+            if (isChatInFolder(child, chatId, chatsMap)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
 
 function FolderItem({
     folder,
@@ -217,11 +237,22 @@ function FolderItem({
     chatsMap: Map<string, Node[]>,
     onSelectChat: (id: string) => void
 }) {
-    const { setActiveFolderId, setActiveNodeId, triggerFolderRefresh } = useWorkspace();
+    const { setActiveFolderId, setActiveNodeId, triggerFolderRefresh, activeNodeId } = useWorkspace();
     const [isOpen, setIsOpen] = useState(false);
+    
+    // Create Subfolder State
     const [isCreateSubfolderOpen, setIsCreateSubfolderOpen] = useState(false);
     const [subfolderName, setSubfolderName] = useState('');
     const [isCreating, setIsCreating] = useState(false);
+
+    // Rename State
+    const [isRenameOpen, setIsRenameOpen] = useState(false);
+    const [newName, setNewName] = useState(folder.name);
+    const [isRenaming, setIsRenaming] = useState(false);
+
+    // Delete State
+    const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     const hasChildren = (folder.children && folder.children.length > 0) || (chatsMap.has(folder.id) && chatsMap.get(folder.id)!.length > 0);
 
@@ -274,6 +305,54 @@ function FolderItem({
         }
     };
 
+    const handleRename = async () => {
+        if (!newName.trim() || newName === folder.name) return;
+        setIsRenaming(true);
+        try {
+            const res = await fetch('/api/folders', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: folder.id, name: newName }),
+            });
+            if (res.ok) {
+                setIsRenameOpen(false);
+                triggerFolderRefresh();
+            }
+        } catch (error) {
+            console.error("Rename failed", error);
+        } finally {
+            setIsRenaming(false);
+        }
+    };
+
+    const handleDelete = async () => {
+        setIsDeleting(true);
+        // Check if the active chat is within this folder or its subfolders
+        const isActiveChatInFolder = activeNodeId ? isChatInFolder(folder, activeNodeId, chatsMap) : false;
+
+        try {
+            const res = await fetch(`/api/folders?id=${folder.id}`, {
+                method: 'DELETE',
+            });
+            if (res.ok) {
+                setIsDeleteOpen(false);
+                triggerFolderRefresh();
+                
+                // If the deleted folder contained the active chat, reset it
+                if (isActiveChatInFolder) {
+                    setActiveNodeId(null);
+                }
+                
+                // If this was the active folder for creation, reset it
+                setActiveFolderId(null);
+            }
+        } catch (error) {
+            console.error("Delete failed", error);
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
     const handleNewChat = () => {
         setActiveFolderId(folder.id);
         setActiveNodeId(null);
@@ -314,7 +393,7 @@ function FolderItem({
                 
                 <span className="truncate flex-1">{folder.name}</span>
 
-                {/* Dropdown menu needs to stop propagation of drag events if necessary, but simpler to just work */}
+                {/* Dropdown menu */}
                 <div onPointerDown={(e) => e.stopPropagation()}>
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
@@ -322,7 +401,7 @@ function FolderItem({
                                 <MoreHorizontal size={14} />
                             </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start">
+                        <DropdownMenuContent align="start" className="w-48">
                             <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setIsCreateSubfolderOpen(true); }}>
                                 <FolderPlus className="mr-2 h-4 w-4" />
                                 New Folder
@@ -330,6 +409,15 @@ function FolderItem({
                             <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleNewChat(); }}>
                                 <MessageSquarePlus className="mr-2 h-4 w-4" />
                                 New Chat
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setNewName(folder.name); setIsRenameOpen(true); }}>
+                                <Edit2 className="mr-2 h-4 w-4" />
+                                Rename
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setIsDeleteOpen(true); }} className="text-red-600 focus:text-red-600">
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Delete
                             </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
@@ -347,6 +435,7 @@ function FolderItem({
                 </div>
             )}
 
+            {/* Create Subfolder Dialog */}
             <Dialog open={isCreateSubfolderOpen} onOpenChange={setIsCreateSubfolderOpen}>
                 <DialogContent onClick={(e) => e.stopPropagation()}>
                     <DialogHeader>
@@ -368,16 +457,103 @@ function FolderItem({
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* Rename Dialog */}
+            <Dialog open={isRenameOpen} onOpenChange={setIsRenameOpen}>
+                <DialogContent onClick={(e) => e.stopPropagation()}>
+                    <DialogHeader>
+                        <DialogTitle>Rename Folder</DialogTitle>
+                    </DialogHeader>
+                    <div className="py-4">
+                        <Input
+                            placeholder="Folder Name"
+                            value={newName}
+                            onChange={(e) => setNewName(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleRename()}
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => setIsRenameOpen(false)}>Cancel</Button>
+                        <Button onClick={handleRename} disabled={isRenaming || !newName.trim()}>
+                            Save
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Delete Confirmation Dialog */}
+            <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+                <DialogContent onClick={(e) => e.stopPropagation()}>
+                    <DialogHeader>
+                        <DialogTitle>Delete Folder?</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to delete "{folder.name}"? This will recursively delete all subfolders and chats inside it. This action cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => setIsDeleteOpen(false)}>Cancel</Button>
+                        <Button variant="destructive" onClick={handleDelete} disabled={isDeleting}>
+                            Delete
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
 
 function DraggableChatItem({ node, onSelect }: { node: Node, onSelect: (id: string) => void }) {
-    const { activeNodeId } = useWorkspace();
+    const { activeNodeId, triggerFolderRefresh, setActiveNodeId } = useWorkspace();
     const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
         id: node.id,
         data: { type: 'CHAT', id: node.id, name: node.summary || node.userPrompt, folderId: node.folderId }
     });
+
+    const [isRenameOpen, setIsRenameOpen] = useState(false);
+    const [newName, setNewName] = useState(node.summary || "New Chat");
+    const [isRenaming, setIsRenaming] = useState(false);
+    const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
+
+    const handleRename = async () => {
+        if (!newName.trim()) return;
+        setIsRenaming(true);
+        try {
+            const res = await fetch('/api/nodes', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: node.id, summary: newName }),
+            });
+            if (res.ok) {
+                setIsRenameOpen(false);
+                triggerFolderRefresh();
+            }
+        } catch (error) {
+            console.error("Rename chat failed", error);
+        } finally {
+            setIsRenaming(false);
+        }
+    };
+
+    const handleDelete = async () => {
+        setIsDeleting(true);
+        try {
+            const res = await fetch(`/api/nodes?id=${node.id}`, {
+                method: 'DELETE',
+            });
+            if (res.ok) {
+                setIsDeleteOpen(false);
+                if (activeNodeId === node.id) {
+                    setActiveNodeId(null);
+                }
+                triggerFolderRefresh();
+            }
+        } catch (error) {
+            console.error("Delete chat failed", error);
+        } finally {
+            setIsDeleting(false);
+        }
+    };
 
     if (isDragging) {
          return <div ref={setNodeRef} className="opacity-50 ml-2 p-1.5 text-sm text-slate-400 border border-dashed border-slate-300 rounded mb-1">{node.summary || "New Chat"}</div>
@@ -386,35 +562,94 @@ function DraggableChatItem({ node, onSelect }: { node: Node, onSelect: (id: stri
     const isActive = activeNodeId === node.id;
 
     return (
-        <div
-            ref={setNodeRef}
-            {...listeners}
-            {...attributes}
-            className={cn(
-                "flex items-center gap-2 p-1.5 rounded cursor-pointer text-sm ml-2",
-                isActive 
-                    ? "bg-blue-100 text-blue-900 font-medium" 
-                    : "text-slate-700 hover:bg-blue-50"
-            )}
-            onClick={(e) => {
-                // Prevent drag start if just clicking, but dnd-kit handles this well usually. 
-                // e.stopPropagation here might block drag.
-                // We'll rely on dnd-kit's activation constraints if needed, but default works for now.
-                // However, we need to distinguish click from drag. Dnd-kit suppresses click on drag.
-                onSelect(node.id);
-            }}
-        >
-            {node.summary ? (
-                <>
-                    <MessageSquare size={14} className={cn("opacity-70 flex-shrink-0", isActive && "text-blue-700 opacity-100")} />
-                    <span className="truncate">{node.summary}</span>
-                </>
-            ) : (
-                <div className="flex items-center gap-2 w-full">
-                    <Loader2 size={14} className="animate-spin text-slate-400 flex-shrink-0" />
-                    <Skeleton className="h-4 w-24 bg-slate-200" />
-                </div>
-            )}
-        </div>
+        <>
+            <div
+                ref={setNodeRef}
+                {...listeners}
+                {...attributes}
+                className={cn(
+                    "flex items-center gap-2 p-1.5 rounded cursor-pointer text-sm ml-2 group",
+                    isActive 
+                        ? "bg-blue-100 text-blue-900 font-medium" 
+                        : "text-slate-700 hover:bg-blue-50"
+                )}
+                onClick={(e) => {
+                    onSelect(node.id);
+                }}
+            >
+                {node.summary ? (
+                    <>
+                        <MessageSquare size={14} className={cn("opacity-70 flex-shrink-0", isActive && "text-blue-700 opacity-100")} />
+                        <span className="truncate flex-1">{node.summary}</span>
+                        
+                        <div onPointerDown={(e) => e.stopPropagation()}>
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                                    <Button variant="ghost" className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 focus:opacity-100" title="Options">
+                                        <MoreHorizontal size={14} />
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="start" className="w-48">
+                                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setNewName(node.summary || "New Chat"); setIsRenameOpen(true); }}>
+                                        <Edit2 className="mr-2 h-4 w-4" />
+                                        Rename
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setIsDeleteOpen(true); }} className="text-red-600 focus:text-red-600">
+                                        <Trash2 className="mr-2 h-4 w-4" />
+                                        Delete
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        </div>
+                    </>
+                ) : (
+                    <div className="flex items-center gap-2 w-full">
+                        <Loader2 size={14} className="animate-spin text-slate-400 flex-shrink-0" />
+                        <Skeleton className="h-4 w-24 bg-slate-200" />
+                    </div>
+                )}
+            </div>
+
+             {/* Rename Chat Dialog */}
+             <Dialog open={isRenameOpen} onOpenChange={setIsRenameOpen}>
+                <DialogContent onClick={(e) => e.stopPropagation()}>
+                    <DialogHeader>
+                        <DialogTitle>Rename Chat</DialogTitle>
+                    </DialogHeader>
+                    <div className="py-4">
+                        <Input
+                            placeholder="Chat Name"
+                            value={newName}
+                            onChange={(e) => setNewName(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleRename()}
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => setIsRenameOpen(false)}>Cancel</Button>
+                        <Button onClick={handleRename} disabled={isRenaming || !newName.trim()}>
+                            Save
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Delete Chat Dialog */}
+            <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+                <DialogContent onClick={(e) => e.stopPropagation()}>
+                    <DialogHeader>
+                        <DialogTitle>Delete Chat?</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to delete this chat? This action cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => setIsDeleteOpen(false)}>Cancel</Button>
+                        <Button variant="destructive" onClick={handleDelete} disabled={isDeleting}>
+                            Delete
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </>
     );
 }

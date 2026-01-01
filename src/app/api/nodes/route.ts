@@ -179,7 +179,7 @@ export async function PATCH(request: Request) {
 
     try {
         const body = await request.json();
-        const { id, folderId, parentId } = body;
+        const { id, folderId, parentId, summary } = body;
 
         if (!id) {
             return NextResponse.json({ error: 'Node ID is required' }, { status: 400 });
@@ -189,6 +189,7 @@ export async function PATCH(request: Request) {
         if (folderId !== undefined) data.folderId = folderId;
         // Allow parentId to be null (to cut node) or a string
         if (parentId !== undefined) data.parentId = parentId;
+        if (summary !== undefined) data.summary = summary;
 
         const node = await prisma.node.findFirst({
             where: { id, userId: user.id }
@@ -206,6 +207,41 @@ export async function PATCH(request: Request) {
         return NextResponse.json(updatedNode);
     } catch (error) {
         console.error('Error updating node:', error);
+        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    }
+}
+
+export async function DELETE(request: Request) {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+
+    if (!id) {
+        return NextResponse.json({ error: 'Node ID is required' }, { status: 400 });
+    }
+
+    try {
+        const existingNode = await prisma.node.findFirst({
+            where: { id, userId: user.id }
+        });
+
+        if (!existingNode) {
+            return NextResponse.json({ error: 'Node not found or unauthorized' }, { status: 404 });
+        }
+
+        await prisma.node.delete({
+            where: { id },
+        });
+
+        return NextResponse.json({ success: true });
+    } catch (error) {
+        console.error('Error deleting node:', error);
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
     }
 }

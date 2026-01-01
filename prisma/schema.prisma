@@ -20,7 +20,7 @@ model Node {
   parent        Node?    @relation("Tree", fields: [parentId], references: [id])
   children      Node[]   @relation("Tree")
   folderId      String?
-  folder        Folder?  @relation(fields: [folderId], references: [id])
+  folder        Folder?  @relation(fields: [folderId], references: [id], onDelete: Cascade)
   userId        String
   user          User     @relation(fields: [userId], references: [id])
   summary       String?
@@ -35,7 +35,7 @@ model Folder {
   id        String   @id @default(uuid())
   name      String
   parentId  String?
-  parent    Folder?  @relation("FolderTree", fields: [parentId], references: [id])
+  parent    Folder?  @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
   children  Folder[] @relation("FolderTree")
   userId    String
   user      User     @relation(fields: [userId], references: [id])
