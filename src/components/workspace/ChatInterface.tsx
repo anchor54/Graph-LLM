@@ -66,6 +66,15 @@ export function ChatInterface() {
     const [activeCitations, setActiveCitations] = useState<Citation[]>([]);
     const [streamedResponse, setStreamedResponse] = useState('');
     const scrollRef = useRef<HTMLDivElement>(null);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+    // Auto-resize textarea
+    useEffect(() => {
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
+        }
+    }, [inputText]);
 
     // Fetch available models on mount
     useEffect(() => {
@@ -409,17 +418,23 @@ export function ChatInterface() {
                             <User className="mr-1" size={12} /> Current Branch Model
                         </div>
                     </div>
-                    <div className="flex gap-2">
-                        <input
-                            type="text"
-                            className="flex-1 p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            placeholder="Type your message..."
+                    <div className="flex gap-2 items-end">
+                        <textarea
+                            ref={textareaRef}
+                            className="flex-1 p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[40px] max-h-[200px] resize-none overflow-y-auto"
+                            placeholder="Type your message... (Markdown supported)"
                             value={inputText}
                             onChange={(e) => setInputText(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    handleSend();
+                                }
+                            }}
                             disabled={sending}
+                            rows={1}
                         />
-                        <Button onClick={handleSend} disabled={sending || !inputText.trim()}>
+                        <Button onClick={handleSend} disabled={sending || !inputText.trim()} className="mb-[2px]">
                             {sending ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
                         </Button>
                     </div>

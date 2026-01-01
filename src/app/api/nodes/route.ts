@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { generateGeminiResponse, summarizeContext, DEFAULT_MODEL, streamGeminiResponse } from '@/lib/gemini';
+import { generateGeminiResponse, summarizeContext, generateChatName, DEFAULT_MODEL, streamGeminiResponse } from '@/lib/gemini';
 import { createClient } from '@/lib/supabase/server';
 
 export async function POST(request: Request) {
@@ -94,15 +94,20 @@ export async function POST(request: Request) {
                     
                     // Stream finished
                     
-                    // 4. Compute Summary & Update DB (Background async work effectively)
-                    // Note: We need to do this BEFORE closing the stream ideally, or just ensure it completes.
-                    // Since this is server-side, we can just await it here before closing controller.
-                    
-                    const newSummary = await summarizeContext(
-                        promptContext || null, 
-                        userPrompt,
-                        fullAiResponse || null
-                    );
+                    // 4. Compute Summary/Title & Update DB
+                    let newSummary = "";
+
+                    if (!parentId) {
+                        // New conversation - Generate Title
+                        newSummary = await generateChatName(userPrompt, fullAiResponse || "");
+                    } else {
+                        // Existing conversation - Summarize Context
+                        newSummary = await summarizeContext(
+                            promptContext || null, 
+                            userPrompt,
+                            fullAiResponse || null
+                        );
+                    }
 
                     await prisma.node.update({
                         where: { id: node.id },

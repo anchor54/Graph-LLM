@@ -106,6 +106,43 @@ export async function* streamGeminiResponse(
     }
 }
 
+export async function generateChatName(
+    userPrompt: string,
+    aiResponse: string
+): Promise<string> {
+    if (!ai) {
+        if (!process.env.GEMINI_API_KEY) {
+            return "New Chat";
+        }
+        ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    }
+
+    try {
+        const prompt = `
+        You are a helpful assistant that generates short, descriptive titles for conversations.
+        
+        User Message:
+        ${userPrompt}
+
+        AI Response:
+        ${aiResponse}
+
+        Please provide a short (6-12 words) title for this conversation based on the exchange above. The title should capture the main topic or purpose of the conversation.
+        Do not use quotes. Return only the title.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: DEFAULT_MODEL,
+            contents: prompt,
+        });
+
+        return response.text?.trim() || "New Chat";
+    } catch (error) {
+        console.error('Error generating chat name:', error);
+        return "New Chat";
+    }
+}
+
 export async function summarizeContext(
     existingSummary: string | null,
     userPrompt: string,
