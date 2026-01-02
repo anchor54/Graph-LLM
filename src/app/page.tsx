@@ -1,6 +1,7 @@
 import { Sidebar } from '@/components/workspace/Sidebar';
 import { ChatInterface } from '@/components/workspace/ChatInterface';
 import { GraphVisualization } from '@/components/workspace/GraphVisualization';
+import { GeminiKeyDialog } from '@/components/workspace/GeminiKeyDialog';
 import {
   ResizableHandle,
   ResizablePanel,
@@ -12,6 +13,7 @@ import { WorkspaceProvider } from '@/context/WorkspaceContext';
 export default function Home() {
   return (
     <WorkspaceProvider>
+      <GeminiKeyDialog />
       <div className="h-screen w-full flex flex-col overflow-hidden">
         <ResizablePanelGroup direction="horizontal" className="flex-1" id="main-group">
           <ResizablePanel defaultSize={20} minSize={15} maxSize={30} id="sidebar-panel">

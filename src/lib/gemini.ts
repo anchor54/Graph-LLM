@@ -1,20 +1,19 @@
 import { GoogleGenAI, Model } from '@google/genai';
 
-const apiKey = process.env.GEMINI_API_KEY;
 export const DEFAULT_MODEL = 'gemini-2.5-flash-lite';
 
-let ai: GoogleGenAI | null = null;
-if (apiKey) {
-    ai = new GoogleGenAI({ apiKey });
-}
+// Helper to get client with provided key or fallback
+const getClient = (apiKey?: string): GoogleGenAI | null => {
+    const key = apiKey || process.env.GEMINI_API_KEY;
+    if (!key) return null;
+    return new GoogleGenAI({ apiKey: key });
+};
 
-export async function getModels() {
+export async function getModels(apiKey?: string) {
+    const ai = getClient(apiKey);
     if (!ai) {
-        if (!process.env.GEMINI_API_KEY) {
-            console.error('GEMINI_API_KEY not set');
-            return [];
-        }
-        ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        console.error('GEMINI_API_KEY not set');
+        return [];
     }
 
     try {
@@ -43,13 +42,12 @@ export async function getModels() {
 export async function generateGeminiResponse(
     prompt: string,
     modelName: string = DEFAULT_MODEL,
-    context?: string
+    context?: string,
+    apiKey?: string
 ) {
+    const ai = getClient(apiKey);
     if (!ai) {
-        if (!process.env.GEMINI_API_KEY) {
-            return "Error: GEMINI_API_KEY is not set in environment variables.";
-        }
-        ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        return "Error: GEMINI_API_KEY is not set.";
     }
 
     try {
@@ -74,14 +72,13 @@ export async function generateGeminiResponse(
 export async function* streamGeminiResponse(
     prompt: string,
     modelName: string = DEFAULT_MODEL,
-    context?: string
+    context?: string,
+    apiKey?: string
 ) {
+    const ai = getClient(apiKey);
     if (!ai) {
-        if (!process.env.GEMINI_API_KEY) {
-            yield "Error: GEMINI_API_KEY is not set in environment variables.";
-            return;
-        }
-        ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        yield "Error: GEMINI_API_KEY is not set.";
+        return;
     }
 
     try {
@@ -108,13 +105,12 @@ export async function* streamGeminiResponse(
 
 export async function generateChatName(
     userPrompt: string,
-    aiResponse: string
+    aiResponse: string,
+    apiKey?: string
 ): Promise<string> {
+    const ai = getClient(apiKey);
     if (!ai) {
-        if (!process.env.GEMINI_API_KEY) {
-            return "New Chat";
-        }
-        ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        return "New Chat";
     }
 
     try {
@@ -146,13 +142,12 @@ export async function generateChatName(
 export async function summarizeContext(
     existingSummary: string | null,
     userPrompt: string,
-    aiResponse: string | null
+    aiResponse: string | null,
+    apiKey?: string
 ): Promise<string> {
+    const ai = getClient(apiKey);
     if (!ai) {
-        if (!process.env.GEMINI_API_KEY) {
-            return "";
-        }
-        ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        return "";
     }
 
     try {

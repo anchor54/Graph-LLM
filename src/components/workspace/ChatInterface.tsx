@@ -55,7 +55,7 @@ const CodeBlock = ({ inline, className, children, isDark }: any) => {
 };
 
 export function ChatInterface() {
-    const { activeNodeId, setActiveNodeId, graphRefreshTrigger, triggerGraphRefresh, triggerFolderRefresh, activeFolderId } = useWorkspace();
+    const { activeNodeId, setActiveNodeId, graphRefreshTrigger, triggerGraphRefresh, triggerFolderRefresh, activeFolderId, geminiApiKey } = useWorkspace();
     const [messages, setMessages] = useState<Node[]>([]);
     const [loading, setLoading] = useState(false);
     const [inputText, setInputText] = useState('');
@@ -65,8 +65,13 @@ export function ChatInterface() {
     const [modelsLoading, setModelsLoading] = useState(true);
     const [activeCitations, setActiveCitations] = useState<Citation[]>([]);
     const [streamedResponse, setStreamedResponse] = useState('');
+    const [mounted, setMounted] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
 
     // Auto-resize textarea
     useEffect(() => {
@@ -78,9 +83,15 @@ export function ChatInterface() {
 
     // Fetch available models on mount
     useEffect(() => {
+        if (!geminiApiKey) return;
+
         const fetchModels = async () => {
             try {
-                const res = await fetch('/api/models');
+                const res = await fetch('/api/models', {
+                    headers: {
+                        'x-gemini-api-key': geminiApiKey
+                    }
+                });
                 if (res.ok) {
                     const models = await res.json();
                     setAvailableModels(models);
@@ -92,7 +103,7 @@ export function ChatInterface() {
             }
         };
         fetchModels();
-    }, []);
+    }, [geminiApiKey]);
 
     // Fetch ancestry when activeNodeId changes
     useEffect(() => {
@@ -167,7 +178,10 @@ export function ChatInterface() {
 
             const res = await fetch('/api/nodes', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'x-gemini-api-key': geminiApiKey || ''
+                },
                 body: JSON.stringify({
                     userPrompt,
                     parentId,
@@ -395,24 +409,28 @@ export function ChatInterface() {
                 <div className="p-4 space-y-2">
                     <div className="flex items-center gap-2">
                         <div className="w-[140px]">
-                            <Select value={selectedModel} onValueChange={setSelectedModel}>
-                                <SelectTrigger className="h-8">
-                                    <SelectValue placeholder="Select Model" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {modelsLoading ? (
-                                        <SelectItem value="loading" disabled>Loading models...</SelectItem>
-                                    ) : availableModels.length > 0 ? (
-                                        availableModels.map((model) => (
-                                            <SelectItem key={model.name} value={model.name}>
-                                                {model.displayName}
-                                            </SelectItem>
-                                        ))
-                                    ) : (
-                                        <SelectItem value="gemini-2.5-flash">Gemini 2.5 Flash (Fallback)</SelectItem>
-                                    )}
-                                </SelectContent>
-                            </Select>
+                            {!mounted ? (
+                                <Skeleton className="h-8 w-full" />
+                            ) : (
+                                <Select value={selectedModel} onValueChange={setSelectedModel}>
+                                    <SelectTrigger className="h-8">
+                                        <SelectValue placeholder="Select Model" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {modelsLoading ? (
+                                            <SelectItem value="loading" disabled>Loading models...</SelectItem>
+                                        ) : availableModels.length > 0 ? (
+                                            availableModels.map((model) => (
+                                                <SelectItem key={model.name} value={model.name}>
+                                                    {model.displayName}
+                                                </SelectItem>
+                                            ))
+                                        ) : (
+                                            <SelectItem value="gemini-2.5-flash">Gemini 2.5 Flash (Fallback)</SelectItem>
+                                        )}
+                                    </SelectContent>
+                                </Select>
+                            )}
                         </div>
                         <div className="flex-1 text-xs text-slate-400 flex items-center">
                             <User className="mr-1" size={12} /> Current Branch Model

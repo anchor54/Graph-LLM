@@ -14,6 +14,7 @@ export async function POST(request: Request) {
 
         const body = await request.json();
         const { userPrompt, parentId, folderId, modelMetadata, citations } = body;
+        const apiKey = request.headers.get('x-gemini-api-key') || undefined;
 
         // Validate required fields
         if (!userPrompt) {
@@ -72,7 +73,7 @@ export async function POST(request: Request) {
 
         // 3. Setup Streaming Response
         const modelName = modelMetadata?.model || DEFAULT_MODEL;
-        const stream = streamGeminiResponse(userPrompt, modelName, promptContext || undefined);
+        const stream = streamGeminiResponse(userPrompt, modelName, promptContext || undefined, apiKey);
         
         const encoder = new TextEncoder();
         
@@ -99,13 +100,14 @@ export async function POST(request: Request) {
 
                     if (!parentId) {
                         // New conversation - Generate Title
-                        newSummary = await generateChatName(userPrompt, fullAiResponse || "");
+                        newSummary = await generateChatName(userPrompt, fullAiResponse || "", apiKey);
                     } else {
                         // Existing conversation - Summarize Context
                         newSummary = await summarizeContext(
                             promptContext || null, 
                             userPrompt,
-                            fullAiResponse || null
+                            fullAiResponse || null,
+                            apiKey
                         );
                     }
 
