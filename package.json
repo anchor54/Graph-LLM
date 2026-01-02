@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "predev": "prisma migrate reset --force",
+    "predev": "node scripts/init-db.js",
     "dev": "next dev",
     "db:reset": "prisma migrate reset --force",
     "build": "next build",
