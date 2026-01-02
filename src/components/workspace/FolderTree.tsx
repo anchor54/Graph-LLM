@@ -39,8 +39,9 @@ export function FolderTree() {
     const [folders, setFolders] = useState<Folder[]>([]);
     const [chats, setChats] = useState<Map<string, Node[]>>(new Map());
     const [loading, setLoading] = useState(true);
-    const { setActiveFolderId, setActiveNodeId, folderRefreshTrigger, graphRefreshTrigger, triggerFolderRefresh } = useWorkspace();
+    const { activeNodeId, setActiveFolderId, setActiveNodeId, folderRefreshTrigger, graphRefreshTrigger, triggerFolderRefresh } = useWorkspace();
     const [activeDragItem, setActiveDragItem] = useState<{ type: 'FOLDER' | 'CHAT', id: string, name: string } | null>(null);
+    const [activeRootId, setActiveRootId] = useState<string | null>(null);
 
     const sensors = useSensors(
         useSensor(PointerSensor, {
@@ -49,6 +50,43 @@ export function FolderTree() {
             },
         })
     );
+
+    useEffect(() => {
+        if (!activeNodeId) {
+            setActiveRootId(null);
+            return;
+        }
+
+        // Check if activeNodeId is a known root
+        let isKnownRoot = false;
+        for (const [_, nodes] of chats) {
+            if (nodes.some(n => n.id === activeNodeId)) {
+                setActiveRootId(activeNodeId);
+                isKnownRoot = true;
+                break;
+            }
+        }
+
+        if (isKnownRoot) return;
+
+        // If not a known root, fetch ancestry to find the root
+        const findRoot = async () => {
+            try {
+                const res = await fetch(`/api/graph/${activeNodeId}?direction=ancestors`);
+                if (res.ok) {
+                    const ancestors = await res.json();
+                    const root = ancestors.find((n: any) => !n.parentId);
+                    if (root) {
+                        setActiveRootId(root.id);
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to find root for highlighting', error);
+            }
+        };
+
+        findRoot();
+    }, [activeNodeId, chats]);
 
     useEffect(() => {
         fetchData();
@@ -171,7 +209,7 @@ export function FolderTree() {
                  <RootDroppable>
                     {/* Root level chats */}
                     {chats.get('root')?.map(chat => (
-                        <DraggableChatItem key={chat.id} node={chat} onSelect={handleSelectChat} />
+                        <DraggableChatItem key={chat.id} node={chat} onSelect={handleSelectChat} activeRootId={activeRootId} />
                     ))}
 
                     {folders.map(folder => (
@@ -180,6 +218,7 @@ export function FolderTree() {
                             folder={folder}
                             chatsMap={chats}
                             onSelectChat={handleSelectChat}
+                            activeRootId={activeRootId}
                         />
                     ))}
                  </RootDroppable>
@@ -203,7 +242,7 @@ function RootDroppable({ children }: { children: React.ReactNode }) {
     });
     
     return (
-        <div ref={setNodeRef} className={cn("h-full", isOver ? "bg-slate-50/50" : "")}>
+        <div ref={setNodeRef} className={cn("h-full", isOver ? "bg-sidebar-accent/50" : "")}>
             {children}
         </div>
     );
@@ -231,11 +270,13 @@ function isChatInFolder(folder: Folder, chatId: string, chatsMap: Map<string, No
 function FolderItem({
     folder,
     chatsMap,
-    onSelectChat
+    onSelectChat,
+    activeRootId
 }: {
     folder: Folder,
     chatsMap: Map<string, Node[]>,
-    onSelectChat: (id: string) => void
+    onSelectChat: (id: string) => void,
+    activeRootId: string | null
 }) {
     const { setActiveFolderId, setActiveNodeId, triggerFolderRefresh, activeNodeId } = useWorkspace();
     const [isOpen, setIsOpen] = useState(false);
@@ -360,7 +401,7 @@ function FolderItem({
     };
 
     if (isDragging) {
-        return <div ref={setDraggableRef} className="opacity-50 pl-2 p-1.5 text-sm text-slate-400 border border-dashed border-slate-300 rounded mb-1">{folder.name}</div>
+        return <div ref={setDraggableRef} className="opacity-50 pl-2 p-1.5 text-sm text-muted-foreground border border-dashed border-sidebar-border rounded mb-1">{folder.name}</div>
     }
 
     return (
@@ -370,8 +411,8 @@ function FolderItem({
                 {...listeners}
                 {...attributes}
                 className={cn(
-                    "flex items-center gap-2 p-1.5 rounded hover:bg-slate-100 cursor-pointer text-sm select-none group",
-                    isOver && "bg-blue-50 ring-1 ring-blue-300"
+                    "flex items-center gap-2 p-1.5 rounded hover:bg-sidebar-accent cursor-pointer text-sm select-none group",
+                    isOver && "bg-sidebar-accent ring-1 ring-sidebar-ring"
                 )}
                 onClick={() => setIsOpen(!isOpen)}
             >
@@ -382,7 +423,7 @@ function FolderItem({
                         e.stopPropagation();
                         setIsOpen(!isOpen);
                     }}
-                    className="cursor-pointer hover:bg-slate-200 rounded p-0.5"
+                    className="cursor-pointer hover:bg-sidebar-accent/80 rounded p-0.5"
                 >
                     {hasChildren ? (
                         isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />
@@ -415,7 +456,7 @@ function FolderItem({
                                 <Edit2 className="mr-2 h-4 w-4" />
                                 Rename
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setIsDeleteOpen(true); }} className="text-red-600 focus:text-red-600">
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setIsDeleteOpen(true); }} className="text-destructive focus:text-destructive">
                                 <Trash2 className="mr-2 h-4 w-4" />
                                 Delete
                             </DropdownMenuItem>
@@ -427,10 +468,10 @@ function FolderItem({
             {isOpen && (
                 <div className="border-l ml-3 pl-1">
                     {chatsMap.get(folder.id)?.map(chat => (
-                        <DraggableChatItem key={chat.id} node={chat} onSelect={onSelectChat} />
+                        <DraggableChatItem key={chat.id} node={chat} onSelect={onSelectChat} activeRootId={activeRootId} />
                     ))}
                     {folder.children?.map(child => (
-                        <FolderItem key={child.id} folder={child} chatsMap={chatsMap} onSelectChat={onSelectChat} />
+                        <FolderItem key={child.id} folder={child} chatsMap={chatsMap} onSelectChat={onSelectChat} activeRootId={activeRootId} />
                     ))}
                 </div>
             )}
@@ -502,7 +543,7 @@ function FolderItem({
     );
 }
 
-function DraggableChatItem({ node, onSelect }: { node: Node, onSelect: (id: string) => void }) {
+function DraggableChatItem({ node, onSelect, activeRootId }: { node: Node, onSelect: (id: string) => void, activeRootId: string | null }) {
     const { activeNodeId, triggerFolderRefresh, setActiveNodeId } = useWorkspace();
     const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
         id: node.id,
@@ -556,10 +597,10 @@ function DraggableChatItem({ node, onSelect }: { node: Node, onSelect: (id: stri
     };
 
     if (isDragging) {
-         return <div ref={setNodeRef} className="opacity-50 ml-2 p-1.5 text-sm text-slate-400 border border-dashed border-slate-300 rounded mb-1">{node.summary || "New Chat"}</div>
+         return <div ref={setNodeRef} className="opacity-50 ml-2 p-1.5 text-sm text-muted-foreground border border-dashed border-sidebar-border rounded mb-1">{node.summary || "New Chat"}</div>
     }
 
-    const isActive = activeNodeId === node.id;
+    const isActive = activeNodeId === node.id || activeRootId === node.id;
 
     return (
         <>
@@ -570,8 +611,8 @@ function DraggableChatItem({ node, onSelect }: { node: Node, onSelect: (id: stri
                 className={cn(
                     "flex items-center gap-2 p-1.5 rounded cursor-pointer text-sm ml-2 group",
                     isActive 
-                        ? "bg-blue-100 text-blue-900 font-medium" 
-                        : "text-slate-700 hover:bg-blue-50"
+                        ? "bg-blue-100 text-blue-900 font-medium dark:bg-blue-900/40 dark:text-blue-100" 
+                        : "text-sidebar-foreground hover:bg-sidebar-accent"
                 )}
                 onClick={(e) => {
                     onSelect(node.id);
@@ -579,7 +620,7 @@ function DraggableChatItem({ node, onSelect }: { node: Node, onSelect: (id: stri
             >
                 {node.summary ? (
                     <>
-                        <MessageSquare size={14} className={cn("opacity-70 flex-shrink-0", isActive && "text-blue-700 opacity-100")} />
+                        <MessageSquare size={14} className={cn("opacity-70 flex-shrink-0", isActive && "text-blue-700 dark:text-blue-300 opacity-100")} />
                         <span className="truncate flex-1">{node.summary}</span>
                         
                         <div onPointerDown={(e) => e.stopPropagation()}>
@@ -594,7 +635,7 @@ function DraggableChatItem({ node, onSelect }: { node: Node, onSelect: (id: stri
                                         <Edit2 className="mr-2 h-4 w-4" />
                                         Rename
                                     </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setIsDeleteOpen(true); }} className="text-red-600 focus:text-red-600">
+                                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setIsDeleteOpen(true); }} className="text-destructive focus:text-destructive">
                                         <Trash2 className="mr-2 h-4 w-4" />
                                         Delete
                                     </DropdownMenuItem>
@@ -604,8 +645,8 @@ function DraggableChatItem({ node, onSelect }: { node: Node, onSelect: (id: stri
                     </>
                 ) : (
                     <div className="flex items-center gap-2 w-full">
-                        <Loader2 size={14} className="animate-spin text-slate-400 flex-shrink-0" />
-                        <Skeleton className="h-4 w-24 bg-slate-200" />
+                        <Loader2 size={14} className="animate-spin text-muted-foreground flex-shrink-0" />
+                        <Skeleton className="h-4 w-24 bg-sidebar-accent" />
                     </div>
                 )}
             </div>

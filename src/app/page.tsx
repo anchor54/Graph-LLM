@@ -29,8 +29,8 @@ function WorkspaceLayout() {
 
    if (isMobile) {
      return (
-       <div className="flex flex-col h-screen overflow-hidden bg-white">
-          <header className="flex items-center justify-between p-2 border-b h-14 shrink-0">
+       <div className="flex flex-col h-screen overflow-hidden bg-background text-foreground">
+          <header className="flex items-center justify-between p-2 border-b border-border h-14 shrink-0 bg-background">
              <Sheet>
                <SheetTrigger asChild>
                  <Button variant="ghost" size="icon">

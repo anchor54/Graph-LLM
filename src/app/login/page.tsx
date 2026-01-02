@@ -51,14 +51,14 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900">
-      <div className="w-full max-w-md p-8 space-y-6 bg-white dark:bg-gray-800 rounded-lg shadow-md">
-        <h1 className="text-2xl font-bold text-center text-gray-900 dark:text-white">
+    <div className="flex items-center justify-center min-h-screen bg-background">
+      <div className="w-full max-w-md p-8 space-y-6 bg-card border border-border rounded-lg shadow-md">
+        <h1 className="text-2xl font-bold text-center text-foreground">
           Welcome
         </h1>
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label className="block text-sm font-medium text-muted-foreground">
               Email
             </label>
             <Input
@@ -70,7 +70,7 @@ export default function LoginPage() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label className="block text-sm font-medium text-muted-foreground">
               Password
             </label>
             <Input
@@ -82,7 +82,7 @@ export default function LoginPage() {
             />
           </div>
           {error && (
-            <div className="text-sm text-red-500">
+            <div className="text-sm text-destructive">
               {error}
             </div>
           )}

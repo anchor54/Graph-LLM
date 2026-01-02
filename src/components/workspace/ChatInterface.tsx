@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useWorkspace } from '@/context/WorkspaceContext';
 import { Node } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Send, User, Bot, Loader2, GitBranch, Quote, MoreHorizontal, Scissors } from 'lucide-react';
+import { Send, User, Bot, Loader2, GitBranch, Quote, MoreHorizontal, Scissors, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -131,6 +131,13 @@ export function ChatInterface() {
 
         fetchHistory();
     }, [activeNodeId, graphRefreshTrigger]);
+
+    // Focus textarea on active chat change or when ready
+    useEffect(() => {
+        if (!loading && textareaRef.current) {
+            textareaRef.current.focus();
+        }
+    }, [activeNodeId, loading]);
 
     // Scroll to bottom
     useEffect(() => {
@@ -297,12 +304,12 @@ export function ChatInterface() {
 
     // Render input even if empty
     return (
-        <div className="h-full flex flex-col bg-white text-slate-900 relative">
+        <div className="h-full flex flex-col bg-background text-foreground relative">
             <SelectionMenu onQuote={handleQuote} />
             
             <div className="flex-1 overflow-y-auto p-4 space-y-4" ref={scrollRef}>
                 {!activeNodeId && messages.length === 0 ? (
-                    <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                    <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
                         <Bot size={48} className="mb-4 opacity-20" />
                         <p>Start a new conversation</p>
                     </div>
@@ -319,7 +326,7 @@ export function ChatInterface() {
                                 {(node as any).citations && (node as any).citations.length > 0 && (
                                     <div className="mb-1 text-right">
                                         {(node as any).citations.map((c: any, i: number) => (
-                                            <div key={i} className="inline-block bg-slate-100 border border-slate-200 text-slate-500 text-[10px] px-2 py-1 rounded-full mr-1 max-w-[200px] truncate" title={c.text}>
+                                            <div key={i} className="inline-block bg-muted border border-border text-muted-foreground text-[10px] px-2 py-1 rounded-full mr-1 max-w-[200px] truncate" title={c.text}>
                                                 <Quote size={8} className="inline mr-1" />
                                                 "{c.text}"
                                             </div>
@@ -327,7 +334,7 @@ export function ChatInterface() {
                                     </div>
                                 )}
                                 
-                                <div className="bg-blue-600 text-white p-3 rounded-2xl rounded-tr-sm max-w-[80%] shadow-sm">
+                                <div className="bg-muted text-foreground p-3 rounded-2xl rounded-tr-sm max-w-[80%] shadow-sm">
                                     <div className="prose prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-pre:my-2">
                                         <ReactMarkdown 
                                             remarkPlugins={[remarkGfm]}
@@ -343,104 +350,78 @@ export function ChatInterface() {
 
                             {/* AI Response */}
                             {(node.aiResponse || isGenerating) && (
-                                <div className="flex justify-start items-center gap-2" data-message-id={node.id} data-message-source="ai">
-                                    {isGenerating && !node.aiResponse ? (
-                                        <div className="bg-slate-100 text-slate-800 p-3 rounded-2xl rounded-tl-sm w-[80%] shadow-sm">
-                                            <div className="space-y-2">
-                                                <Skeleton className="h-4 w-[90%] bg-slate-200" />
-                                                <Skeleton className="h-4 w-[75%] bg-slate-200" />
-                                                <Skeleton className="h-4 w-[50%] bg-slate-200" />
+                                <div className="flex justify-center w-full" data-message-id={node.id} data-message-source="ai">
+                                    <div className="w-full max-w-3xl relative group/ai pr-8">
+                                        {isGenerating && !node.aiResponse ? (
+                                            <div className="text-foreground py-2">
+                                                <div className="space-y-2">
+                                                    <Skeleton className="h-4 w-[90%] bg-muted-foreground/20" />
+                                                    <Skeleton className="h-4 w-[75%] bg-muted-foreground/20" />
+                                                    <Skeleton className="h-4 w-[50%] bg-muted-foreground/20" />
+                                                </div>
                                             </div>
-                                        </div>
-                                    ) : (
-                                        <div className="bg-slate-100 text-slate-800 p-3 rounded-2xl rounded-tl-sm max-w-[80%] shadow-sm">
-                                            <div className="mb-2 text-xs text-slate-400 font-semibold uppercase">
-                                                {node.modelMetadata?.model || 'AI'}
+                                        ) : (
+                                            <div className="text-foreground py-2">
+                                                <div className="mb-2 text-xs text-muted-foreground font-semibold uppercase">
+                                                    {node.modelMetadata?.model || 'AI'}
+                                                </div>
+                                                <div className="prose dark:prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-pre:my-2">
+                                                    <ReactMarkdown 
+                                                        remarkPlugins={[remarkGfm]}
+                                                        components={{
+                                                            code: (props) => <CodeBlock {...props} isDark={true} />
+                                                        }}
+                                                    >
+                                                        {node.aiResponse || ''}
+                                                    </ReactMarkdown>
+                                                </div>
                                             </div>
-                                            <div className="prose prose-slate prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-pre:my-2">
-                                                <ReactMarkdown 
-                                                    remarkPlugins={[remarkGfm]}
-                                                    components={{
-                                                        code: (props) => <CodeBlock {...props} isDark={true} />
-                                                    }}
-                                                >
-                                                    {node.aiResponse || ''}
-                                                </ReactMarkdown>
-                                            </div>
-                                        </div>
-                                    )}
-                                    {node.id !== 'temp-id' && (
-                                        <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
+                                        )}
+                                        {node.id !== 'temp-id' && !isGenerating && (
+                                            <div className="flex items-center gap-2 mt-2 opacity-0 group-hover/ai:opacity-100 transition-opacity">
                                                 <Button 
                                                     variant="ghost" 
-                                                    size="icon" 
-                                                    className="opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8 text-slate-400 hover:text-blue-600"
+                                                    size="sm"
+                                                    className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground gap-1.5"
+                                                    onClick={() => handleBranch(node.id)}
+                                                    title="Branch from here"
                                                 >
-                                                    <MoreHorizontal size={16} />
+                                                    <GitBranch size={14} />
+                                                    Branch
                                                 </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="start">
-                                                <DropdownMenuItem onClick={() => handleBranch(node.id)}>
-                                                    <GitBranch className="mr-2 h-4 w-4" />
-                                                    Branch from here
-                                                </DropdownMenuItem>
                                                 {node.parentId && (
-                                                    <DropdownMenuItem onClick={() => handleCutToNewChat(node.id)}>
-                                                        <Scissors className="mr-2 h-4 w-4" />
-                                                        Cut to new chat
-                                                    </DropdownMenuItem>
+                                                    <Button 
+                                                        variant="ghost" 
+                                                        size="sm"
+                                                        className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground gap-1.5"
+                                                        onClick={() => handleCutToNewChat(node.id)}
+                                                        title="Cut to new chat"
+                                                    >
+                                                        <Scissors size={14} />
+                                                        Cut
+                                                    </Button>
                                                 )}
-                                            </DropdownMenuContent>
-                                        </DropdownMenu>
-                                    )}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             )}
                         </div>
                         );
                     })
                 )}
-                {loading && <div className="flex justify-center p-4"><Loader2 className="animate-spin text-slate-400" /></div>}
+                {loading && <div className="flex justify-center p-4"><Loader2 className="animate-spin text-muted-foreground" /></div>}
             </div>
 
-            <div className="border-t bg-slate-50">
-                <CitationsDisplay citations={activeCitations} onRemove={handleRemoveCitation} />
-                
-                <div className="p-4 space-y-2">
-                    <div className="flex items-center gap-2">
-                        <div className="w-[140px]">
-                            {!mounted ? (
-                                <Skeleton className="h-8 w-full" />
-                            ) : (
-                                <Select value={selectedModel} onValueChange={setSelectedModel}>
-                                    <SelectTrigger className="h-8">
-                                        <SelectValue placeholder="Select Model" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {modelsLoading ? (
-                                            <SelectItem value="loading" disabled>Loading models...</SelectItem>
-                                        ) : availableModels.length > 0 ? (
-                                            availableModels.map((model) => (
-                                                <SelectItem key={model.name} value={model.name}>
-                                                    {model.displayName}
-                                                </SelectItem>
-                                            ))
-                                        ) : (
-                                            <SelectItem value="gemini-2.5-flash">Gemini 2.5 Flash (Fallback)</SelectItem>
-                                        )}
-                                    </SelectContent>
-                                </Select>
-                            )}
-                        </div>
-                        <div className="flex-1 text-xs text-slate-400 flex items-center">
-                            <User className="mr-1" size={12} /> Current Branch Model
-                        </div>
-                    </div>
-                    <div className="flex gap-2 items-end">
+            <div className="bg-background p-4 pb-6">
+                <div className="max-w-3xl mx-auto w-full space-y-3">
+                    <CitationsDisplay citations={activeCitations} onRemove={handleRemoveCitation} />
+                    
+                    <div className="bg-muted/70 rounded-[28px] p-4 border border-transparent focus-within:border-border transition-colors">
                         <textarea
                             ref={textareaRef}
-                            className="flex-1 p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[40px] max-h-[200px] resize-none overflow-y-auto"
-                            placeholder="Type your message... (Markdown supported)"
+                            className="w-full bg-transparent border-none focus:outline-none focus:ring-0 resize-none min-h-[48px] max-h-[200px] px-2 py-1 text-foreground placeholder:text-muted-foreground text-base"
+                            placeholder="Ask Gemini..."
                             value={inputText}
                             onChange={(e) => setInputText(e.target.value)}
                             onKeyDown={(e) => {
@@ -452,9 +433,49 @@ export function ChatInterface() {
                             disabled={sending}
                             rows={1}
                         />
-                        <Button onClick={handleSend} disabled={sending || !inputText.trim()} className="mb-[2px]">
-                            {sending ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
-                        </Button>
+                        
+                        <div className="flex justify-between items-center mt-2 px-1">
+                            <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-muted-foreground hover:bg-background/50 hover:text-foreground bg-background/30">
+                                <Plus size={20} />
+                            </Button>
+
+                            <div className="flex items-center gap-2">
+                                {!mounted ? (
+                                    <Skeleton className="h-9 w-24 rounded-full" />
+                                ) : (
+                                    <Select value={selectedModel} onValueChange={setSelectedModel}>
+                                        <SelectTrigger className="h-9 border-none bg-background/30 shadow-none hover:bg-background/50 rounded-full gap-2 px-3 text-xs font-medium text-muted-foreground hover:text-foreground focus:ring-0 w-auto">
+                                            <SelectValue placeholder="Model" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {modelsLoading ? (
+                                                <SelectItem value="loading" disabled>Loading models...</SelectItem>
+                                            ) : availableModels.length > 0 ? (
+                                                availableModels.map((model) => (
+                                                    <SelectItem key={model.name} value={model.name}>
+                                                        {model.displayName}
+                                                    </SelectItem>
+                                                ))
+                                            ) : (
+                                                <SelectItem value="gemini-2.5-flash">Gemini 2.5 Flash (Fallback)</SelectItem>
+                                            )}
+                                        </SelectContent>
+                                    </Select>
+                                )}
+                                
+                                <Button 
+                                    onClick={handleSend} 
+                                    disabled={sending || !inputText.trim()} 
+                                    size="icon"
+                                    className={cn(
+                                        "h-9 w-9 rounded-full transition-all",
+                                        inputText.trim() ? "bg-primary text-primary-foreground" : "bg-muted-foreground/20 text-muted-foreground"
+                                    )}
+                                >
+                                    {sending ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
+                                </Button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

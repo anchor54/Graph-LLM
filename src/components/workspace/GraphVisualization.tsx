@@ -21,15 +21,15 @@ import { useWorkspace } from '@/context/WorkspaceContext';
 const CustomNode = ({ data, id }: { data: any, id: string }) => {
     const isUser = data.label.startsWith('User:');
     return (
-        <div className={`px-4 py-2 shadow-md rounded-md border-2 w-[200px] text-xs ${data.isActive ? 'border-blue-500 ring-2 ring-blue-200' : 'border-slate-200 bg-white'}`}>
-            <Handle type="target" position={Position.Top} className="w-16 !bg-slate-300" />
-            <div className={`font-bold mb-1 ${isUser ? 'text-blue-600' : 'text-slate-600'}`}>
+        <div className={`px-4 py-2 shadow-md rounded-md border-2 w-[200px] text-xs ${data.isActive ? 'border-primary ring-2 ring-ring' : 'border-border bg-card'}`}>
+            <Handle type="target" position={Position.Top} className="w-16 !bg-muted" />
+            <div className={`font-bold mb-1 ${isUser ? 'text-primary' : 'text-muted-foreground'}`}>
                 {isUser ? 'User' : 'AI'}
             </div>
-            <div className="truncate text-slate-500">
+            <div className="truncate text-muted-foreground">
                 {data.label.replace(/^(User:|AI:)\s*/, '')}
             </div>
-            <Handle type="source" position={Position.Bottom} className="w-16 !bg-slate-300" />
+            <Handle type="source" position={Position.Bottom} className="w-16 !bg-muted" />
         </div>
     );
 };
@@ -146,14 +146,14 @@ export function GraphVisualization() {
 
     if (!activeNodeId) {
         return (
-            <div className="h-full bg-slate-50 border-l p-4 flex items-center justify-center text-slate-400">
+            <div className="h-full bg-background border-l border-border p-4 flex items-center justify-center text-muted-foreground">
                 Graph View
             </div>
         );
     }
 
     return (
-        <div className="h-full bg-slate-50 border-l w-full">
+        <div className="h-full bg-background border-l border-border w-full">
             <ReactFlow
                 nodes={nodes}
                 edges={edges}

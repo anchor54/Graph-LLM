@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { FolderTree } from './FolderTree';
 import { Button } from '@/components/ui/button';
-import { FolderPlus, MessageSquarePlus, LogOut } from 'lucide-react';
+import { FolderPlus, MessageSquarePlus, LogOut, Key } from 'lucide-react';
 import { useWorkspace } from '@/context/WorkspaceContext';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -17,9 +17,11 @@ import {
 import { Input } from '@/components/ui/input';
 
 export function Sidebar() {
-    const { setActiveNodeId, setActiveFolderId, triggerFolderRefresh } = useWorkspace();
+    const { setActiveNodeId, setActiveFolderId, triggerFolderRefresh, setGeminiApiKey } = useWorkspace();
     const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
+    const [isApiKeyDialogOpen, setIsApiKeyDialogOpen] = useState(false);
     const [newFolderName, setNewFolderName] = useState('');
+    const [apiKeyInputValue, setApiKeyInputValue] = useState('');
     const [isCreating, setIsCreating] = useState(false);
     const router = useRouter();
     const supabase = createClient();
@@ -55,8 +57,16 @@ export function Sidebar() {
         router.refresh();
     };
 
+    const handleUpdateApiKey = () => {
+        if (apiKeyInputValue.trim()) {
+            setGeminiApiKey(apiKeyInputValue.trim());
+            setApiKeyInputValue('');
+            setIsApiKeyDialogOpen(false);
+        }
+    };
+
     return (
-        <div className="h-full bg-slate-50 border-r flex flex-col p-4">
+        <div className="h-full bg-muted/40 border-r border-sidebar-border flex flex-col p-4">
             <div className="flex items-center justify-between mb-4 shrink-0">
                 <h2 className="font-semibold">Folders</h2>
                 <div className="flex gap-1">
@@ -88,8 +98,12 @@ export function Sidebar() {
                 <FolderTree />
             </div>
 
-            <div className="mt-4 pt-4 border-t shrink-0">
-                <Button variant="ghost" className="w-full justify-start gap-2 text-red-600 hover:text-red-700 hover:bg-red-50" onClick={handleLogout}>
+            <div className="mt-4 pt-4 border-t border-sidebar-border shrink-0 space-y-1">
+                <Button variant="ghost" className="w-full justify-start gap-2" onClick={() => setIsApiKeyDialogOpen(true)}>
+                    <Key size={16} />
+                    Change API Key
+                </Button>
+                <Button variant="ghost" className="w-full justify-start gap-2 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={handleLogout}>
                     <LogOut size={16} />
                     Sign Out
                 </Button>
@@ -112,6 +126,29 @@ export function Sidebar() {
                         <Button variant="ghost" onClick={() => setIsCreateFolderOpen(false)}>Cancel</Button>
                         <Button onClick={handleCreateFolder} disabled={isCreating || !newFolderName.trim()}>
                             Create
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={isApiKeyDialogOpen} onOpenChange={setIsApiKeyDialogOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Update Gemini API Key</DialogTitle>
+                    </DialogHeader>
+                    <div className="py-4">
+                        <Input
+                            placeholder="Enter new API key"
+                            value={apiKeyInputValue}
+                            onChange={(e) => setApiKeyInputValue(e.target.value)}
+                            type="password"
+                            autoComplete="off"
+                            onKeyDown={(e) => e.key === 'Enter' && handleUpdateApiKey()}
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => setIsApiKeyDialogOpen(false)}>Cancel</Button>
+                        <Button onClick={handleUpdateApiKey} disabled={!apiKeyInputValue.trim()}>
+                            Update Key
                         </Button>
                     </DialogFooter>
                 </DialogContent>
