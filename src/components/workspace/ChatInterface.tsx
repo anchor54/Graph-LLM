@@ -374,7 +374,25 @@ export function ChatInterface() {
             {/* Removed redundant header since it's now in the input area */}
             
             <div className="flex-1 overflow-y-auto p-4 space-y-4" ref={scrollRef}>
-                {!activeNodeId && messages.length === 0 ? (
+                {loading ? (
+                    <div className="space-y-8 animate-in fade-in duration-300">
+                        {[1, 2].map((i) => (
+                            <div key={i} className="space-y-6">
+                                {/* User message skeleton */}
+                                <div className="flex flex-col items-end gap-1">
+                                    <Skeleton className="h-16 w-[70%] rounded-2xl rounded-tr-sm bg-muted/40" />
+                                </div>
+                                {/* AI response skeleton */}
+                                <div className="space-y-3 w-full max-w-3xl">
+                                    <Skeleton className="h-4 w-[90%] bg-muted/20" />
+                                    <Skeleton className="h-4 w-[95%] bg-muted/20" />
+                                    <Skeleton className="h-4 w-[85%] bg-muted/20" />
+                                    <Skeleton className="h-4 w-[60%] bg-muted/20" />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : !activeNodeId && messages.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
                         <Bot size={48} className="mb-4 opacity-20" />
                         <p>Start a new conversation</p>
@@ -499,7 +517,6 @@ export function ChatInterface() {
                         );
                     })
                 )}
-                {loading && <div className="flex justify-center p-4"><Loader2 className="animate-spin text-muted-foreground" /></div>}
             </div>
 
             <div className="bg-background p-4 pb-6">

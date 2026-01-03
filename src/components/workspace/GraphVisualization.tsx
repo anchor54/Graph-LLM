@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import ReactFlow, {
     Background,
     Controls,
@@ -18,7 +18,7 @@ import dagre from 'dagre';
 import { useWorkspace } from '@/context/WorkspaceContext';
 
 // Custom Node Component
-const CustomNode = ({ data, id }: { data: any, id: string }) => {
+const CustomNode = React.memo(({ data, id }: { data: any, id: string }) => {
     const isUser = data.label.startsWith('User:');
     const isReference = data.isReference;
     
@@ -40,7 +40,7 @@ const CustomNode = ({ data, id }: { data: any, id: string }) => {
             <Handle type="source" position={Position.Bottom} className={`w-16 ${isReference ? '!bg-muted-foreground/50' : '!bg-muted'}`} />
         </div>
     );
-};
+});
 
 const nodeTypes = {
     custom: CustomNode,
@@ -110,15 +110,15 @@ export function GraphVisualization() {
         return nodeId;
     };
 
-    const fetchGraph = useCallback(async () => {
+    const fetchGraph = useCallback(async (currentNodeId: string | null) => {
         let allNodes: Node[] = [];
         let allEdges: Edge[] = [];
         let currentYOffset = 0;
         let activeGraphNodes: any[] = []; // Store raw node data from active graph
 
         // 1. Fetch Main Active Graph
-        if (activeNodeId) {
-            const root = await findRoot(activeNodeId);
+        if (currentNodeId) {
+            const root = await findRoot(currentNodeId);
             const res = await fetch(`/api/graph/${root}`);
             if (res.ok) {
                 const treeData = await res.json();
@@ -130,7 +130,7 @@ export function GraphVisualization() {
                     position: { x: 0, y: 0 },
                     data: {
                         label: n.userPrompt ? `User: ${n.userPrompt}` : `AI: ${n.aiResponse || '...'}`,
-                        isActive: n.id === activeNodeId,
+                        isActive: n.id === currentNodeId,
                         references: n.references // Pass references to data
                     },
                 }));
@@ -191,7 +191,7 @@ export function GraphVisualization() {
         };
 
         // a) UI Context Items (Linked to Active Node implicitly or just floating)
-        await Promise.all(contextItems.map(item => addContextRoot(item.id, item.type, activeNodeId || undefined)));
+        await Promise.all(contextItems.map(item => addContextRoot(item.id, item.type, currentNodeId || undefined)));
 
         // b) & c) References in Active Graph History
         // We iterate through all nodes in the active graph to find their references
@@ -204,83 +204,118 @@ export function GraphVisualization() {
         }));
 
         // Remove active graph root if present to avoid duplication (referencing itself)
-        if (activeNodeId) {
-             const activeRoot = await findRoot(activeNodeId);
+        if (currentNodeId) {
+             const activeRoot = await findRoot(currentNodeId);
              contextRoots.delete(activeRoot);
         }
 
         let contextIndex = 0;
-        // Fetch and layout each context graph
-        for (const rootId of contextRoots) {
-            try {
-                const res = await fetch(`/api/graph/${rootId}`);
-                if (res.ok) {
-                    const treeData = await res.json();
+        
+        // Parallel fetch of all context graphs
+        const contextGraphPromises = Array.from(contextRoots).map(async (rootId) => {
+             try {
+                 const res = await fetch(`/api/graph/${rootId}`);
+                 if (res.ok) {
+                     return { rootId, treeData: await res.json() };
+                 }
+             } catch (e) {
+                 console.error(`Error fetching context graph ${rootId}`, e);
+             }
+             return null;
+        });
+
+        const contextResults = await Promise.all(contextGraphPromises);
+
+        // Layout each context graph
+        for (const result of contextResults) {
+            if (!result) continue;
+            const { rootId, treeData } = result;
                     
-                    const flowNodes: Node[] = treeData.map((n: any) => ({
-                        id: n.id,
-                        type: 'custom',
-                        position: { x: 0, y: 0 },
-                        data: {
-                            label: n.userPrompt ? `User: ${n.userPrompt}` : `AI: ${n.aiResponse || '...'}`,
-                            isActive: false,
-                            isReference: true
-                        },
-                    }));
+            const flowNodes: Node[] = treeData.map((n: any) => ({
+                id: n.id,
+                type: 'custom',
+                position: { x: 0, y: 0 },
+                data: {
+                    label: n.userPrompt ? `User: ${n.userPrompt}` : `AI: ${n.aiResponse || '...'}`,
+                    isActive: false,
+                    isReference: true
+                },
+            }));
 
-                    const flowEdges: Edge[] = treeData
-                        .filter((n: any) => n.parentId)
-                        .map((n: any) => ({
-                            id: `${n.parentId}-${n.id}`,
-                            source: n.parentId,
-                            target: n.id,
-                            type: 'smoothstep',
-                            markerEnd: { type: MarkerType.ArrowClosed },
+            const flowEdges: Edge[] = treeData
+                .filter((n: any) => n.parentId)
+                .map((n: any) => ({
+                    id: `${n.parentId}-${n.id}`,
+                    source: n.parentId,
+                    target: n.id,
+                    type: 'smoothstep',
+                    markerEnd: { type: MarkerType.ArrowClosed },
+                    animated: true,
+                    style: { strokeDasharray: '5,5', opacity: 0.5 }
+                }));
+
+            const layouted = getLayoutedElements(flowNodes, flowEdges, 'TB', { x: 0, y: currentYOffset });
+            allNodes = [...allNodes, ...layouted.nodes];
+            allEdges = [...allEdges, ...layouted.edges];
+
+            // Draw connections from source nodes to this context graph
+            const sources = contextSourceMap.get(rootId);
+            if (sources) {
+                sources.forEach(sourceId => {
+                    // Verify source exists in current graph (it should)
+                    if (allNodes.find(n => n.id === sourceId)) {
+                            allEdges.push({
+                            id: `ref-conn-${sourceId}-${rootId}`,
+                            source: sourceId,
+                            target: rootId,
+                            type: 'default',
                             animated: true,
-                            style: { strokeDasharray: '5,5', opacity: 0.5 }
-                        }));
-
-                    const layouted = getLayoutedElements(flowNodes, flowEdges, 'TB', { x: 0, y: currentYOffset });
-                    allNodes = [...allNodes, ...layouted.nodes];
-                    allEdges = [...allEdges, ...layouted.edges];
-
-                    // Draw connections from source nodes to this context graph
-                    const sources = contextSourceMap.get(rootId);
-                    if (sources) {
-                        sources.forEach(sourceId => {
-                            // Verify source exists in current graph (it should)
-                            if (allNodes.find(n => n.id === sourceId)) {
-                                 allEdges.push({
-                                    id: `ref-conn-${sourceId}-${rootId}`,
-                                    source: sourceId,
-                                    target: rootId,
-                                    type: 'default',
-                                    animated: true,
-                                    style: { stroke: '#94a3b8', strokeDasharray: '5,5', opacity: 0.6 },
-                                    label: 'Ref'
-                                });
-                            }
+                            style: { stroke: '#94a3b8', strokeDasharray: '5,5', opacity: 0.6 },
+                            label: 'Ref'
                         });
                     }
-
-                    if (layouted.bounds.height > 0) {
-                         currentYOffset += layouted.bounds.height + 50;
-                    }
-                    contextIndex++;
-                }
-            } catch (e) {
-                console.error(`Error fetching context graph ${rootId}`, e);
+                });
             }
+
+            if (layouted.bounds.height > 0) {
+                    currentYOffset += layouted.bounds.height + 50;
+            }
+            contextIndex++;
         }
 
         setNodes(allNodes);
         setEdges(allEdges);
 
-    }, [activeNodeId, graphRefreshTrigger, contextItems, setNodes, setEdges]);
+    }, [graphRefreshTrigger, contextItems, setNodes, setEdges]);
+
+    const prevTrigger = useRef(graphRefreshTrigger);
 
     useEffect(() => {
-        fetchGraph();
-    }, [fetchGraph]);
+        const triggerChanged = prevTrigger.current !== graphRefreshTrigger;
+        prevTrigger.current = graphRefreshTrigger;
+
+        let shouldFetch = true;
+
+        // Optimization: If activeNodeId changed but is already in the graph, just update local state
+        // Only attempt fast path if trigger did NOT change
+        if (activeNodeId && !triggerChanged) {
+             const existingNode = nodes.find(n => n.id === activeNodeId);
+             if (existingNode) {
+                 setNodes(prev => prev.map(n => ({
+                     ...n,
+                     data: {
+                         ...n.data,
+                         isActive: n.id === activeNodeId
+                     }
+                 })));
+                 shouldFetch = false;
+             }
+        }
+        
+        if (shouldFetch) {
+            fetchGraph(activeNodeId);
+        }
+    }, [fetchGraph, activeNodeId, graphRefreshTrigger]);
 
     const onNodeClick = (_: React.MouseEvent, node: Node) => {
         setActiveNodeId(node.id);
@@ -306,8 +341,6 @@ export function GraphVisualization() {
                 fitView
             >
                 <Background />
-                <Controls />
-                <MiniMap />
             </ReactFlow>
         </div>
     );
