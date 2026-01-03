@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useWorkspace } from '@/context/WorkspaceContext';
 import { Node } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Send, User, Bot, Loader2, GitBranch, Quote, MoreHorizontal, Scissors, Plus } from 'lucide-react';
+import { Send, User, Bot, Loader2, GitBranch, Quote, MoreHorizontal, Scissors, Plus, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -28,6 +28,15 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 
 // Custom code component for syntax highlighting
 const CodeBlock = ({ inline, className, children, isDark }: any) => {
@@ -66,6 +75,7 @@ export function ChatInterface() {
     const [activeCitations, setActiveCitations] = useState<Citation[]>([]);
     const [streamedResponse, setStreamedResponse] = useState('');
     const [mounted, setMounted] = useState(false);
+    const [nodeToDelete, setNodeToDelete] = useState<{ id: string, parentId: string | null } | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -294,6 +304,36 @@ export function ChatInterface() {
         }
     };
 
+    const handleDeleteClick = (nodeId: string, parentId: string | null) => {
+        setNodeToDelete({ id: nodeId, parentId });
+    };
+
+    const handleConfirmDelete = async (mode: 'single' | 'subtree') => {
+        if (!nodeToDelete) return;
+        
+        try {
+            const res = await fetch(`/api/nodes?id=${nodeToDelete.id}&mode=${mode}`, {
+                method: 'DELETE',
+            });
+
+            if (res.ok) {
+                // If subtree delete, or if we deleted the active node itself, navigate to parent.
+                // If single delete of an ancestor, the active node (descendant) is preserved (reparented), so stay.
+                if (mode === 'subtree' || activeNodeId === nodeToDelete.id) {
+                    setActiveNodeId(nodeToDelete.parentId);
+                }
+                
+                triggerGraphRefresh();
+                triggerFolderRefresh();
+                setNodeToDelete(null);
+            } else {
+                console.error('Failed to delete node');
+            }
+        } catch (error) {
+            console.error('Error deleting node:', error);
+        }
+    };
+
     const handleQuote = (text: string, nodeId: string, source: 'user' | 'ai') => {
         setActiveCitations(prev => [...prev, { text, nodeId, source }]);
     };
@@ -401,6 +441,16 @@ export function ChatInterface() {
                                                         Cut
                                                     </Button>
                                                 )}
+                                                <Button 
+                                                    variant="ghost" 
+                                                    size="sm"
+                                                    className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive gap-1.5"
+                                                    onClick={() => handleDeleteClick(node.id, node.parentId)}
+                                                    title="Delete message"
+                                                >
+                                                    <Trash2 size={14} />
+                                                    Delete
+                                                </Button>
                                             </div>
                                         )}
                                     </div>
@@ -479,6 +529,34 @@ export function ChatInterface() {
                     </div>
                 </div>
             </div>
+            
+            <Dialog open={!!nodeToDelete} onOpenChange={(open) => !open && setNodeToDelete(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Delete Message</DialogTitle>
+                        <DialogDescription>
+                            How would you like to delete this message?
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                        <div className="border rounded-md p-4 space-y-2 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => handleConfirmDelete('single')}>
+                            <div className="font-medium">Delete this message only</div>
+                            <div className="text-sm text-muted-foreground">
+                                The message will be removed. Any replies will be moved to the parent message.
+                            </div>
+                        </div>
+                        <div className="border border-destructive/50 rounded-md p-4 space-y-2 hover:bg-destructive/10 transition-colors cursor-pointer" onClick={() => handleConfirmDelete('subtree')}>
+                            <div className="font-medium text-destructive">Delete entire conversation from here</div>
+                            <div className="text-sm text-muted-foreground">
+                                This message and ALL subsequent replies in this thread will be permanently deleted.
+                            </div>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => setNodeToDelete(null)}>Cancel</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

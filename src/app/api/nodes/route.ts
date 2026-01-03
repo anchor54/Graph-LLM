@@ -307,6 +307,7 @@ export async function DELETE(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
+    const mode = searchParams.get('mode') || 'single'; // 'single' (reparent) or 'subtree'
 
     if (!id) {
         return NextResponse.json({ error: 'Node ID is required' }, { status: 400 });
@@ -321,9 +322,38 @@ export async function DELETE(request: Request) {
             return NextResponse.json({ error: 'Node not found or unauthorized' }, { status: 404 });
         }
 
-        await prisma.node.delete({
-            where: { id },
-        });
+        if (mode === 'subtree') {
+            // Recursive delete
+            const descendants: { id: string }[] = await prisma.$queryRaw`
+                WITH RECURSIVE descendants AS (
+                    SELECT id FROM "Node" WHERE id = ${id} AND "userId" = ${user.id}
+                    UNION ALL
+                    SELECT n.id FROM "Node" n
+                    INNER JOIN descendants d ON n."parentId" = d.id
+                    WHERE n."userId" = ${user.id}
+                )
+                SELECT id FROM descendants;
+            `;
+
+            const idsToDelete = descendants.map(d => d.id);
+            
+            // Fallback if queryRaw returns nothing (should at least return self) or fails
+            if (idsToDelete.length === 0) idsToDelete.push(id);
+
+            await prisma.node.deleteMany({
+                where: { id: { in: idsToDelete } }
+            });
+        } else {
+            // Reparent children to grandparent (or null if root)
+            await prisma.node.updateMany({
+                where: { parentId: id },
+                data: { parentId: existingNode.parentId }
+            });
+
+            await prisma.node.delete({
+                where: { id },
+            });
+        }
 
         return NextResponse.json({ success: true });
     } catch (error) {
