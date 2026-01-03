@@ -125,7 +125,8 @@ export function ChatInterface() {
         const fetchHistory = async () => {
             setLoading(true);
             try {
-                const res = await fetch(`/api/graph/${activeNodeId}?direction=ancestors`);
+                // Fetch ancestry with children count
+                const res = await fetch(`/api/graph/${activeNodeId}?direction=ancestors&includeChildrenCount=true`);
                 if (res.ok) {
                     const data: Node[] = await res.json();
                     // Sort by date asc
@@ -476,16 +477,19 @@ export function ChatInterface() {
                                         )}
                                         {node.id !== 'temp-id' && !isGenerating && (
                                             <div className="flex items-center gap-2 mt-2 opacity-0 group-hover/ai:opacity-100 transition-opacity">
-                                                <Button 
-                                                    variant="ghost" 
-                                                    size="sm"
-                                                    className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground gap-1.5"
-                                                    onClick={() => handleBranch(node.id)}
-                                                    title="Branch from here"
-                                                >
-                                                    <GitBranch size={14} />
-                                                    Branch
-                                                </Button>
+                                                {/* Only show Branch button if node has children */}
+                                                {(node as any).childrenCount > 0 && (
+                                                    <Button 
+                                                        variant="ghost" 
+                                                        size="sm"
+                                                        className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground gap-1.5"
+                                                        onClick={() => handleBranch(node.id)}
+                                                        title="Branch from here"
+                                                    >
+                                                        <GitBranch size={14} />
+                                                        Branch
+                                                    </Button>
+                                                )}
                                                 {node.parentId && (
                                                     <Button 
                                                         variant="ghost" 

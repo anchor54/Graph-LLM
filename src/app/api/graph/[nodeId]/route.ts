@@ -29,24 +29,50 @@ export async function GET(
 
         const { searchParams } = new URL(request.url);
         const direction = searchParams.get('direction'); // 'descendants' (default) or 'ancestors'
+        const includeChildrenCount = searchParams.get('includeChildrenCount') === 'true';
 
         let query;
         if (direction === 'ancestors') {
-            query = prisma.$queryRaw`
-                WITH RECURSIVE "Ancestors" AS (
-                    SELECT "id", "parentId", "folderId", "summary", "userPrompt", "aiResponse", "modelMetadata", "createdAt", "updatedAt", "references"
-                    FROM "Node"
-                    WHERE "id" = ${nodeId} AND "userId" = ${user.id}
-                    
-                    UNION ALL
-                    
-                    SELECT p."id", p."parentId", p."folderId", p."summary", p."userPrompt", p."aiResponse", p."modelMetadata", p."createdAt", p."updatedAt", p."references"
-                    FROM "Node" p
-                    JOIN "Ancestors" c ON c."parentId" = p."id"
-                    WHERE p."userId" = ${user.id}
-                )
-                SELECT * FROM "Ancestors"
-            `;
+            if (includeChildrenCount) {
+                // Fetch ancestors and also count children for each
+                // Note: This requires a lateral join or correlated subquery in the final select
+                // But $queryRaw returns raw data, so we need to construct a query that joins children count
+                // A simpler way is to fetch ancestors, then for each ancestor, count immediate children.
+                // We can do this in a single complex query.
+                query = prisma.$queryRaw`
+                    WITH RECURSIVE "Ancestors" AS (
+                        SELECT "id", "parentId", "folderId", "summary", "userPrompt", "aiResponse", "modelMetadata", "createdAt", "updatedAt", "references"
+                        FROM "Node"
+                        WHERE "id" = ${nodeId} AND "userId" = ${user.id}
+                        
+                        UNION ALL
+                        
+                        SELECT p."id", p."parentId", p."folderId", p."summary", p."userPrompt", p."aiResponse", p."modelMetadata", p."createdAt", p."updatedAt", p."references"
+                        FROM "Node" p
+                        JOIN "Ancestors" c ON c."parentId" = p."id"
+                        WHERE p."userId" = ${user.id}
+                    )
+                    SELECT a.*, 
+                           (SELECT COUNT(*)::int FROM "Node" n WHERE n."parentId" = a."id") as "childrenCount"
+                    FROM "Ancestors" a
+                `;
+            } else {
+                query = prisma.$queryRaw`
+                    WITH RECURSIVE "Ancestors" AS (
+                        SELECT "id", "parentId", "folderId", "summary", "userPrompt", "aiResponse", "modelMetadata", "createdAt", "updatedAt", "references"
+                        FROM "Node"
+                        WHERE "id" = ${nodeId} AND "userId" = ${user.id}
+                        
+                        UNION ALL
+                        
+                        SELECT p."id", p."parentId", p."folderId", p."summary", p."userPrompt", p."aiResponse", p."modelMetadata", p."createdAt", p."updatedAt", p."references"
+                        FROM "Node" p
+                        JOIN "Ancestors" c ON c."parentId" = p."id"
+                        WHERE p."userId" = ${user.id}
+                    )
+                    SELECT * FROM "Ancestors"
+                `;
+            }
         } else {
             // Default: descendants
             query = prisma.$queryRaw`
