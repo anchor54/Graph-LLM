@@ -27,6 +27,7 @@ model Node {
   userPrompt    String
   aiResponse    String?
   modelMetadata Json?
+  references    Json?    // Stores array of { id, type, name } used as context
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }

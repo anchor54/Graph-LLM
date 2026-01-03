@@ -16,6 +16,13 @@ export interface Node {
     aiResponse: string | null;
     modelMetadata: any;
     citations?: any[];
+    references?: ContextItem[]; // Array of referenced context items
     createdAt: string;
     updatedAt: string;
+}
+
+export interface ContextItem {
+    id: string;
+    type: 'folder' | 'chat' | 'node';
+    name?: string; // Optional name for display
 }

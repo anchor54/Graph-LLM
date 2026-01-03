@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Folder, Node } from '@/types';
-import { ChevronRight, ChevronDown, Folder as FolderIcon, MessageSquare, MoreHorizontal, FolderPlus, MessageSquarePlus, Loader2, Edit2, Trash2 } from 'lucide-react';
+import { ChevronRight, ChevronDown, Folder as FolderIcon, MessageSquare, MoreHorizontal, FolderPlus, MessageSquarePlus, Loader2, Edit2, Trash2, Bookmark, BookmarkCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useWorkspace } from '@/context/WorkspaceContext';
@@ -278,9 +278,12 @@ function FolderItem({
     onSelectChat: (id: string) => void,
     activeRootId: string | null
 }) {
-    const { setActiveFolderId, setActiveNodeId, triggerFolderRefresh, activeNodeId } = useWorkspace();
+    const { setActiveFolderId, setActiveNodeId, triggerFolderRefresh, activeNodeId, contextItems, toggleContextItem } = useWorkspace();
     const [isOpen, setIsOpen] = useState(false);
     
+    // Check if folder is in context
+    const isContextSelected = contextItems.some(i => i.id === folder.id && i.type === 'folder');
+
     // Create Subfolder State
     const [isCreateSubfolderOpen, setIsCreateSubfolderOpen] = useState(false);
     const [subfolderName, setSubfolderName] = useState('');
@@ -432,7 +435,10 @@ function FolderItem({
                     )}
                 </span>
                 
-                <span className="truncate flex-1">{folder.name}</span>
+                <span className="truncate flex-1 flex items-center gap-2">
+                    {folder.name}
+                    {isContextSelected && <BookmarkCheck size={14} className="text-blue-500" />}
+                </span>
 
                 {/* Dropdown menu */}
                 <div onPointerDown={(e) => e.stopPropagation()}>
@@ -443,6 +449,11 @@ function FolderItem({
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="start" className="w-48">
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); toggleContextItem({ id: folder.id, type: 'folder', name: folder.name }); }}>
+                                <Bookmark className="mr-2 h-4 w-4" />
+                                {isContextSelected ? "Remove from Context" : "Add to Context"}
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
                             <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setIsCreateSubfolderOpen(true); }}>
                                 <FolderPlus className="mr-2 h-4 w-4" />
                                 New Folder
@@ -544,11 +555,13 @@ function FolderItem({
 }
 
 function DraggableChatItem({ node, onSelect, activeRootId }: { node: Node, onSelect: (id: string) => void, activeRootId: string | null }) {
-    const { activeNodeId, triggerFolderRefresh, setActiveNodeId } = useWorkspace();
+    const { activeNodeId, triggerFolderRefresh, setActiveNodeId, contextItems, toggleContextItem } = useWorkspace();
     const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
         id: node.id,
         data: { type: 'CHAT', id: node.id, name: node.summary || node.userPrompt, folderId: node.folderId }
     });
+
+    const isContextSelected = contextItems.some(i => i.id === node.id && i.type === 'chat');
 
     const [isRenameOpen, setIsRenameOpen] = useState(false);
     const [newName, setNewName] = useState(node.summary || "New Chat");
@@ -621,7 +634,10 @@ function DraggableChatItem({ node, onSelect, activeRootId }: { node: Node, onSel
                 {node.summary ? (
                     <>
                         <MessageSquare size={14} className={cn("opacity-70 flex-shrink-0", isActive && "text-blue-700 dark:text-blue-300 opacity-100")} />
-                        <span className="truncate flex-1">{node.summary}</span>
+                        <span className="truncate flex-1 flex items-center gap-2">
+                            {node.summary}
+                            {isContextSelected && <BookmarkCheck size={14} className="text-blue-500" />}
+                        </span>
                         
                         <div onPointerDown={(e) => e.stopPropagation()}>
                             <DropdownMenu>
@@ -631,6 +647,11 @@ function DraggableChatItem({ node, onSelect, activeRootId }: { node: Node, onSel
                                     </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="start" className="w-48">
+                                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); toggleContextItem({ id: node.id, type: 'chat', name: node.summary || "Chat" }); }}>
+                                        <Bookmark className="mr-2 h-4 w-4" />
+                                        {isContextSelected ? "Remove from Context" : "Add to Context"}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
                                     <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setNewName(node.summary || "New Chat"); setIsRenameOpen(true); }}>
                                         <Edit2 className="mr-2 h-4 w-4" />
                                         Rename

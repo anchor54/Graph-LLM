@@ -2,9 +2,9 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { useWorkspace } from '@/context/WorkspaceContext';
-import { Node } from '@/types';
+import { Node, ContextItem } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Send, User, Bot, Loader2, GitBranch, Quote, MoreHorizontal, Scissors, Plus, Trash2 } from 'lucide-react';
+import { Send, User, Bot, Loader2, GitBranch, Quote, MoreHorizontal, Scissors, Plus, Trash2, BookmarkCheck, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -64,7 +64,7 @@ const CodeBlock = ({ inline, className, children, isDark }: any) => {
 };
 
 export function ChatInterface() {
-    const { activeNodeId, setActiveNodeId, graphRefreshTrigger, triggerGraphRefresh, triggerFolderRefresh, activeFolderId, geminiApiKey } = useWorkspace();
+    const { activeNodeId, setActiveNodeId, graphRefreshTrigger, triggerGraphRefresh, triggerFolderRefresh, activeFolderId, geminiApiKey, contextItems, toggleContextItem } = useWorkspace();
     const [messages, setMessages] = useState<Node[]>([]);
     const [loading, setLoading] = useState(false);
     const [inputText, setInputText] = useState('');
@@ -175,6 +175,7 @@ export function ChatInterface() {
             folderId: messages.length > 0 ? messages[messages.length - 1].folderId : activeFolderId,
             modelMetadata: { model: selectedModel },
             citations: activeCitations,
+            references: contextItems, // Include current context items
             summary: null
         } as any;
 
@@ -182,6 +183,26 @@ export function ChatInterface() {
         setActiveCitations([]); // Clear citations
 
         try {
+            // Resolve Context Items to Node IDs
+            const referencedNodeIds = new Set<string>();
+            
+            for (const item of contextItems) {
+                if (item.type === 'folder') {
+                    try {
+                        // Fetch all root nodes in folder (recursive)
+                        const res = await fetch(`/api/nodes?folderId=${item.id}&recursive=true&rootsOnly=true`);
+                        if (res.ok) {
+                            const nodes = await res.json();
+                            nodes.forEach((n: any) => referencedNodeIds.add(n.id));
+                        }
+                    } catch (e) {
+                        console.error("Error resolving folder context", e);
+                    }
+                } else {
+                    referencedNodeIds.add(item.id);
+                }
+            }
+
             const activeMessage = messages.length > 0 ? messages[messages.length - 1] : null;
             let parentId = activeMessage?.id || null;
 
@@ -204,7 +225,9 @@ export function ChatInterface() {
                     parentId,
                     folderId,
                     modelMetadata: { model: selectedModel },
-                    citations: optimisticNode.citations
+                    citations: optimisticNode.citations,
+                    referencedNodeIds: Array.from(referencedNodeIds),
+                    references: contextItems // Pass context items to save in DB
                 }),
             });
 
@@ -347,6 +370,9 @@ export function ChatInterface() {
         <div className="h-full flex flex-col bg-background text-foreground relative">
             <SelectionMenu onQuote={handleQuote} />
             
+            {/* Context Header */}
+            {/* Removed redundant header since it's now in the input area */}
+            
             <div className="flex-1 overflow-y-auto p-4 space-y-4" ref={scrollRef}>
                 {!activeNodeId && messages.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
@@ -357,6 +383,7 @@ export function ChatInterface() {
                     messages.map((node, index) => {
                         const isLast = index === messages.length - 1;
                         const isGenerating = isLast && sending;
+                        console.log(node)
 
                         return (
                             <div key={node.id} className="space-y-4 group">
@@ -369,6 +396,18 @@ export function ChatInterface() {
                                             <div key={i} className="inline-block bg-muted border border-border text-muted-foreground text-[10px] px-2 py-1 rounded-full mr-1 max-w-[200px] truncate" title={c.text}>
                                                 <Quote size={8} className="inline mr-1" />
                                                 "{c.text}"
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* Display References if this message used them */}
+                                {(node as any).references && (node as any).references.length > 0 && (
+                                    <div className="mb-1 text-right flex flex-wrap justify-end gap-1">
+                                        {(node as any).references.map((r: any, i: number) => ( // Use 'any' to bypass strict check for now if Type mismatch
+                                            <div key={i} className="inline-flex items-center gap-1 bg-blue-50/50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-[10px] px-2 py-0.5 rounded-full">
+                                                <BookmarkCheck size={8} />
+                                                <span className="max-w-[150px] truncate">{r.name || r.type}</span>
                                             </div>
                                         ))}
                                     </div>
@@ -467,6 +506,25 @@ export function ChatInterface() {
                 <div className="max-w-3xl mx-auto w-full space-y-3">
                     <CitationsDisplay citations={activeCitations} onRemove={handleRemoveCitation} />
                     
+                    {/* Active References Display in Input Area */}
+                    {contextItems.length > 0 && (
+                         <div className="flex flex-wrap gap-2 mb-2">
+                            {contextItems.map(item => (
+                                <div key={`${item.type}-${item.id}`} className="flex items-center gap-1 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-full px-2 py-1 text-xs text-blue-700 dark:text-blue-300 shadow-sm animate-in fade-in zoom-in duration-200">
+                                    <BookmarkCheck size={12} />
+                                    <span className="max-w-[150px] truncate font-medium">{item.name || item.type}</span>
+                                    <button 
+                                        onClick={() => toggleContextItem(item)}
+                                        className="ml-1 hover:text-blue-900 dark:hover:text-blue-100 rounded-full hover:bg-blue-200/50 dark:hover:bg-blue-800/50 p-0.5"
+                                        title="Remove reference"
+                                    >
+                                        <X size={10} />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
                     <div className="bg-muted/70 rounded-[28px] p-4 border border-transparent focus-within:border-border transition-colors">
                         <textarea
                             ref={textareaRef}

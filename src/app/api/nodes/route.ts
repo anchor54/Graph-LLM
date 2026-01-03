@@ -39,7 +39,7 @@ export async function POST(request: Request) {
         }
 
         const body = await request.json();
-        const { userPrompt, parentId, folderId, modelMetadata, citations } = body;
+        const { userPrompt, parentId, folderId, modelMetadata, citations, referencedNodeIds, references } = body;
         const apiKey = request.headers.get('x-gemini-api-key') || undefined;
 
         // Validate required fields
@@ -63,20 +63,33 @@ export async function POST(request: Request) {
             ancestorNodes = await getAncestorChain(parentId, user.id);
             
             // If parentId was provided but no nodes returned, it means the parent doesn't exist or isn't owned by user
-            // (Assuming getAncestorChain returns at least the parent if it exists)
-            // However, getAncestorChain returns ancestors of the node ID passed. 
-            // If we pass parentId, it returns parent and its ancestors.
             if (ancestorNodes.length === 0) {
-                 // Double check if it's just a missing parent or query failure
-                 // But for now, if we expect a parent and get none, treat as error or detached.
-                 // Actually, let's verify if parent exists separately if result is empty? 
-                 // No, getAncestorChain does the job.
                  const check = await prisma.node.findUnique({ where: { id: parentId } });
                  if (!check || check.userId !== user.id) {
                      return NextResponse.json({ error: 'Parent node not found' }, { status: 404 });
                  }
-                 // If check passed but chain empty, something weird happened with CTE, maybe just return check?
-                 // But CTE should work.
+            }
+        }
+
+        // 1b. Fetch Referenced Conversations
+        let referencedContext = "";
+        if (referencedNodeIds && Array.isArray(referencedNodeIds) && referencedNodeIds.length > 0) {
+            const references = [];
+            for (const refId of referencedNodeIds) {
+                // We treat each refId as a point in a conversation and fetch history up to it
+                // If the user selected a "Chat" (root), this will just be the root. 
+                // To support "entire chat" if it's a tree, we might need more complex logic, 
+                // but for now "context up to this node" is the most well-defined semantics.
+                const chain = await getAncestorChain(refId, user.id);
+                if (chain.length > 0) {
+                    const chainText = chain.map(n => 
+                        `User: ${n.userPrompt}\nAI: ${n.aiResponse || "(No response)"}`
+                    ).join("\n\n");
+                    references.push(`Conversation ending at node ${refId}:\n${chainText}`);
+                }
+            }
+            if (references.length > 0) {
+                referencedContext = `--- REFERENCED CONVERSATIONS ---\n${references.join("\n\n---\n\n")}`;
             }
         }
 
@@ -123,6 +136,10 @@ export async function POST(request: Request) {
         // Construct Final Prompt Context
         const contextParts = [];
         
+        if (referencedContext) {
+            contextParts.push(referencedContext);
+        }
+
         if (deepHistorySummary) {
             contextParts.push(`--- PREVIOUS CONVERSATION SUMMARIES ---\n${deepHistorySummary}`);
         }
@@ -151,6 +168,7 @@ export async function POST(request: Request) {
                     ...(modelMetadata ?? {}),
                     citations: citations ?? []
                 },
+                references: references ?? [],
                 aiResponse: null,
                 summary: null, // We will compute this AFTER we get the AI response
             },
@@ -237,10 +255,30 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const folderId = searchParams.get('folderId');
     const rootsOnly = searchParams.get('rootsOnly') === 'true';
+    const recursive = searchParams.get('recursive') === 'true';
 
     try {
         const where: any = { userId: user.id };
-        if (folderId) where.folderId = folderId;
+
+        if (folderId) {
+            if (recursive) {
+                 // Get all descendant folder IDs
+                 const descendantFolders: { id: string }[] = await prisma.$queryRaw`
+                    WITH RECURSIVE FolderHierarchy AS (
+                        SELECT id FROM "Folder" WHERE id = ${folderId}
+                        UNION ALL
+                        SELECT f.id FROM "Folder" f
+                        INNER JOIN FolderHierarchy fh ON f."parentId" = fh.id
+                    )
+                    SELECT id FROM FolderHierarchy;
+                `;
+                const folderIds = descendantFolders.map(f => f.id);
+                where.folderId = { in: folderIds };
+            } else {
+                where.folderId = folderId;
+            }
+        }
+        
         if (rootsOnly) where.parentId = null;
 
         const nodes = await prisma.node.findMany({
