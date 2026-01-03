@@ -1,7 +1,33 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { generateGeminiResponse, summarizeContext, generateChatName, DEFAULT_MODEL, streamGeminiResponse } from '@/lib/gemini';
+import { generateGeminiResponse, summarizeInteraction, generateChatName, DEFAULT_MODEL, streamGeminiResponse } from '@/lib/gemini';
 import { createClient } from '@/lib/supabase/server';
+
+// Helper to fetch ancestor chain
+async function getAncestorChain(nodeId: string, userId: string) {
+    try {
+        // Use raw query for recursive fetch
+        // Note: Table name "Node" must be quoted if case sensitive in DB, usually Prisma uses PascalCase model -> "Node" table
+        const result = await prisma.$queryRaw<any[]>`
+            WITH RECURSIVE Ancestors AS (
+                SELECT id, "parentId", "userPrompt", "aiResponse", summary, "modelMetadata", "createdAt"
+                FROM "Node"
+                WHERE id = ${nodeId} AND "userId" = ${userId}
+                
+                UNION ALL
+                
+                SELECT n.id, n."parentId", n."userPrompt", n."aiResponse", n.summary, n."modelMetadata", n."createdAt"
+                FROM "Node" n
+                INNER JOIN Ancestors a ON n.id = a."parentId"
+            )
+            SELECT * FROM Ancestors ORDER BY "createdAt" ASC;
+        `;
+        return result;
+    } catch (error) {
+        console.error("Error fetching ancestors:", error);
+        return [];
+    }
+}
 
 export async function POST(request: Request) {
     try {
@@ -28,32 +54,91 @@ export async function POST(request: Request) {
             create: { id: user.id, email: user.email! }
         });
 
-        // 1. Fetch Parent Node to get context
-        let historyContext = null;
-        let parentNode = null;
+        // 1. Build Context from Ancestors
+        let promptContext = "";
+        let ancestorNodes: any[] = [];
 
         if (parentId) {
-            parentNode = await prisma.node.findFirst({
-                where: { id: parentId, userId: user.id }
-            });
-
-            if (!parentNode) {
-                return NextResponse.json({ error: 'Parent node not found' }, { status: 404 });
-            }
-
-            historyContext = parentNode.summary; 
-        }
-
-        // 1b. Format Citations
-        let promptContext = historyContext || "";
-        
-        if (citations && Array.isArray(citations) && citations.length > 0) {
-            const citationText = citations.map((c: any) => 
-                `From ${c.source === 'user' ? 'User' : 'AI'} message (Node ${c.nodeId}):\n"${c.text}"`
-            ).join('\n\n');
+            // Fetch the parent and all its ancestors
+            ancestorNodes = await getAncestorChain(parentId, user.id);
             
-            promptContext = `${promptContext}\n\n[Explicit User References / Citations]:\n${citationText}`;
+            // If parentId was provided but no nodes returned, it means the parent doesn't exist or isn't owned by user
+            // (Assuming getAncestorChain returns at least the parent if it exists)
+            // However, getAncestorChain returns ancestors of the node ID passed. 
+            // If we pass parentId, it returns parent and its ancestors.
+            if (ancestorNodes.length === 0) {
+                 // Double check if it's just a missing parent or query failure
+                 // But for now, if we expect a parent and get none, treat as error or detached.
+                 // Actually, let's verify if parent exists separately if result is empty? 
+                 // No, getAncestorChain does the job.
+                 const check = await prisma.node.findUnique({ where: { id: parentId } });
+                 if (!check || check.userId !== user.id) {
+                     return NextResponse.json({ error: 'Parent node not found' }, { status: 404 });
+                 }
+                 // If check passed but chain empty, something weird happened with CTE, maybe just return check?
+                 // But CTE should work.
+            }
         }
+
+        // Partition History
+        // We want the last 10 interactions as full text
+        const recentHistory = ancestorNodes.slice(-10);
+        // Everything before that is deep history
+        const olderHistory = ancestorNodes.slice(0, -10);
+
+        // Build Summaries from Deep History
+        const deepHistorySummary = olderHistory.map(node => {
+            const summary = node.summary;
+            if (summary) return `Summary of interaction: ${summary}`;
+            // Fallback if no summary exists
+            return `Interaction: User asked "${node.userPrompt.substring(0, 50)}..." and AI responded.`;
+        }).join("\n");
+
+        // Format Recent History (Full Text)
+        const recentHistoryText = recentHistory.map(node => 
+            `User: ${node.userPrompt}\nAI: ${node.aiResponse || "(No response)"}`
+        ).join("\n\n");
+
+        // Aggregate Citations
+        // 1. Ancestor citations
+        const ancestorCitations = ancestorNodes.flatMap(node => {
+            const meta = node.modelMetadata;
+            if (meta && typeof meta === 'object' && !Array.isArray(meta) && meta.citations && Array.isArray(meta.citations)) {
+                return meta.citations;
+            }
+            return [];
+        });
+
+        // 2. Current request citations
+        const currentCitations = citations || [];
+        const allCitations = [...ancestorCitations, ...currentCitations];
+        
+        // Deduplicate citations based on text
+        const uniqueCitationsMap = new Map();
+        allCitations.forEach(c => {
+            if (c && c.text) uniqueCitationsMap.set(c.text, c);
+        });
+        const uniqueCitations = Array.from(uniqueCitationsMap.values());
+
+        // Construct Final Prompt Context
+        const contextParts = [];
+        
+        if (deepHistorySummary) {
+            contextParts.push(`--- PREVIOUS CONVERSATION SUMMARIES ---\n${deepHistorySummary}`);
+        }
+        
+        if (uniqueCitations.length > 0) {
+            const citationText = uniqueCitations.map((c: any) => 
+                `"${c.text}" (Source: ${c.source === 'user' ? 'User' : 'AI'} message)`
+            ).join('\n');
+            contextParts.push(`--- REFERENCED QUOTES ---\n${citationText}`);
+        }
+
+        if (recentHistoryText) {
+             contextParts.push(`--- RECENT CONVERSATION ---\n${recentHistoryText}`);
+        }
+
+        promptContext = contextParts.join("\n\n");
 
         // 2. Create the new node
         const node = await prisma.node.create({
@@ -102,9 +187,8 @@ export async function POST(request: Request) {
                         // New conversation - Generate Title
                         newSummary = await generateChatName(userPrompt, fullAiResponse || "", apiKey);
                     } else {
-                        // Existing conversation - Summarize Context
-                        newSummary = await summarizeContext(
-                            promptContext || null, 
+                        // Existing conversation - Summarize THIS Interaction only
+                        newSummary = await summarizeInteraction(
                             userPrompt,
                             fullAiResponse || null,
                             apiKey

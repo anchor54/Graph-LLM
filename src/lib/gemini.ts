@@ -139,8 +139,7 @@ export async function generateChatName(
     }
 }
 
-export async function summarizeContext(
-    existingSummary: string | null,
+export async function summarizeInteraction(
     userPrompt: string,
     aiResponse: string | null,
     apiKey?: string
@@ -152,17 +151,14 @@ export async function summarizeContext(
 
     try {
         const prompt = `
-        You are a helpful assistant that summarizes conversation history.
-        
-        Current Summary:
-        ${existingSummary || "No previous summary."}
+        Summarize the following conversation interaction concisely.
+        Focus on the main topic or question and the key points of the answer.
+        This summary will be used as context for future turns.
 
-        New Exchange:
         User: ${userPrompt}
-        AI: ${aiResponse || "No response yet."}
+        AI: ${aiResponse || "No response."}
 
-        Please provide a concise updated summary of the entire conversation up to this point, incorporating the new exchange. 
-        Keep it brief but preserve key details and context.
+        Summary:
         `;
 
         // Use a fast model for summarization
@@ -173,7 +169,7 @@ export async function summarizeContext(
 
         return response.text || "";
     } catch (error) {
-        console.error('Error summarizing context:', error);
-        return existingSummary || ""; // Return old summary on failure
+        console.error('Error summarizing interaction:', error);
+        return ""; // Return empty on failure
     }
 }
