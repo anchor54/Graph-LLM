@@ -155,63 +155,58 @@ export function GraphVisualization() {
             }
         }
 
-        // 2. Resolve Context Roots from THREE sources:
-        //    a) Currently selected context items (UI)
-        //    b) References stored in the active node (DB)
-        //    c) References stored in any ancestor node in the active graph (DB)
-        const contextRoots = new Set<string>();
-        const contextSourceMap = new Map<string, Set<string>>(); // Maps contextRootId -> Set<sourceNodeId>
+        // 2. Resolve Referenced Nodes from THREE sources:
+        //    a) Currently selected context items (UI) - show full trees for folders
+        //    b) References stored in the active node (DB) - show only specific nodes
+        //    c) References stored in any ancestor node in the active graph (DB) - show only specific nodes
+        const contextRoots = new Set<string>(); // Full trees from folder context
+        const referencedNodeIds = new Set<string>(); // Individual nodes from references
+        const referenceEdges: Array<{ sourceId: string, targetId: string }> = []; // Track reference edges
 
-        // Helper to add context root and link it to a source node
-        const addContextRoot = async (refId: string, type: string, sourceNodeId?: string) => {
-            let rootsToAdd: string[] = [];
-            
+        // Helper to process references
+        const addReference = async (refId: string, type: string, sourceNodeId?: string) => {
             if (type === 'folder') {
+                // For folders from UI context, show full trees
                 try {
                     const res = await fetch(`/api/nodes?folderId=${refId}&recursive=true`);
                     if (res.ok) {
                         const folderNodes = await res.json();
                         folderNodes.forEach((n: any) => {
-                             if (!n.parentId) rootsToAdd.push(n.id);
+                             if (!n.parentId) {
+                                 contextRoots.add(n.id);
+                             }
                         });
                     }
                 } catch (e) {}
             } else {
-                 const root = await findRoot(refId);
-                 rootsToAdd.push(root);
-            }
-
-            rootsToAdd.forEach(root => {
-                contextRoots.add(root);
-                if (sourceNodeId) {
-                    if (!contextSourceMap.has(root)) contextSourceMap.set(root, new Set());
-                    contextSourceMap.get(root)!.add(sourceNodeId);
+                // For node references, only show the specific node (not the entire tree)
+                // Check if this node is in the active graph already
+                const isInActiveGraph = activeGraphNodes.some((n: any) => n.id === refId);
+                if (!isInActiveGraph) {
+                    referencedNodeIds.add(refId);
                 }
-            });
+                // Track the reference edge
+                if (sourceNodeId) {
+                    referenceEdges.push({ sourceId: sourceNodeId, targetId: refId });
+                }
+            }
         };
 
-        // a) UI Context Items (Linked to Active Node implicitly or just floating)
-        await Promise.all(contextItems.map(item => addContextRoot(item.id, item.type, currentNodeId || undefined)));
+        // a) UI Context Items (show full trees for folders)
+        await Promise.all(contextItems.map(item => addReference(item.id, item.type, currentNodeId || undefined)));
 
-        // b) & c) References in Active Graph History
-        // We iterate through all nodes in the active graph to find their references
+        // b) & c) References in Active Graph History (show only specific nodes)
         await Promise.all(activeGraphNodes.map(async (node) => {
             if (node.references && Array.isArray(node.references)) {
                 await Promise.all(node.references.map((ref: any) => 
-                    addContextRoot(ref.id, ref.type, node.id)
+                    addReference(ref.id, ref.type, node.id)
                 ));
             }
         }));
 
-        // Remove active graph root if present to avoid duplication (referencing itself)
-        if (currentNodeId) {
-             const activeRoot = await findRoot(currentNodeId);
-             contextRoots.delete(activeRoot);
-        }
-
         let contextIndex = 0;
         
-        // Parallel fetch of all context graphs
+        // Fetch and layout full context trees (from folders)
         const contextGraphPromises = Array.from(contextRoots).map(async (rootId) => {
              try {
                  const res = await fetch(`/api/graph/${rootId}`);
@@ -226,7 +221,7 @@ export function GraphVisualization() {
 
         const contextResults = await Promise.all(contextGraphPromises);
 
-        // Layout each context graph
+        // Layout each context graph (full trees)
         for (const result of contextResults) {
             if (!result) continue;
             const { rootId, treeData } = result;
@@ -258,30 +253,70 @@ export function GraphVisualization() {
             allNodes = [...allNodes, ...layouted.nodes];
             allEdges = [...allEdges, ...layouted.edges];
 
-            // Draw connections from source nodes to this context graph
-            const sources = contextSourceMap.get(rootId);
-            if (sources) {
-                sources.forEach(sourceId => {
-                    // Verify source exists in current graph (it should)
-                    if (allNodes.find(n => n.id === sourceId)) {
-                            allEdges.push({
-                            id: `ref-conn-${sourceId}-${rootId}`,
-                            source: sourceId,
-                            target: rootId,
-                            type: 'default',
-                            animated: true,
-                            style: { stroke: '#94a3b8', strokeDasharray: '5,5', opacity: 0.6 },
-                            label: 'Ref'
-                        });
-                    }
-                });
-            }
-
             if (layouted.bounds.height > 0) {
                     currentYOffset += layouted.bounds.height + 50;
             }
             contextIndex++;
         }
+
+        // Fetch and add individual referenced nodes (not their full trees)
+        const referencedNodesPromises = Array.from(referencedNodeIds).map(async (nodeId) => {
+            try {
+                const res = await fetch(`/api/graph/${nodeId}`);
+                if (res.ok) {
+                    const treeData = await res.json();
+                    // Find just the specific node in the response
+                    return treeData.find((n: any) => n.id === nodeId);
+                }
+            } catch (e) {
+                console.error(`Error fetching referenced node ${nodeId}`, e);
+            }
+            return null;
+        });
+
+        const referencedNodesData = await Promise.all(referencedNodesPromises);
+
+        // Add individual referenced nodes to the graph
+        referencedNodesData.forEach((nodeData, index) => {
+            if (!nodeData) return;
+            
+            // Position referenced nodes in a row below context trees
+            const xPosition = index * 250; // Spacing between nodes
+            
+            allNodes.push({
+                id: nodeData.id,
+                type: 'custom',
+                position: { x: xPosition, y: currentYOffset },
+                data: {
+                    label: nodeData.userPrompt ? `User: ${nodeData.userPrompt}` : `AI: ${nodeData.aiResponse || '...'}`,
+                    isActive: false,
+                    isReference: true
+                },
+            });
+        });
+        
+        if (referencedNodeIds.size > 0) {
+            currentYOffset += 100; // Add spacing after referenced nodes
+        }
+
+        // Draw all reference edges
+        referenceEdges.forEach(({ sourceId, targetId }) => {
+            // Verify both source and target exist in the graph
+            const sourceExists = allNodes.find(n => n.id === sourceId);
+            const targetExists = allNodes.find(n => n.id === targetId);
+            
+            if (sourceExists && targetExists) {
+                allEdges.push({
+                    id: `ref-${sourceId}-${targetId}`,
+                    source: sourceId,
+                    target: targetId,
+                    type: 'default',
+                    animated: true,
+                    style: { stroke: '#94a3b8', strokeDasharray: '5,5', opacity: 0.6 },
+                    label: 'Ref'
+                });
+            }
+        });
 
         setNodes(allNodes);
         setEdges(allEdges);
