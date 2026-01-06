@@ -251,7 +251,6 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Simple list, maybe filter by folderId?
     const { searchParams } = new URL(request.url);
     const folderId = searchParams.get('folderId');
     const rootsOnly = searchParams.get('rootsOnly') === 'true';

@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useWorkspace } from '@/context/WorkspaceContext';
 import { Node, ContextItem } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Send, User, Bot, Loader2, GitBranch, Quote, MoreHorizontal, Scissors, Plus, Trash2, BookmarkCheck, X } from 'lucide-react';
+import { Send, User, Bot, Loader2, GitBranch, Quote, MoreHorizontal, Scissors, Plus, Trash2, BookmarkCheck, X, Bookmark } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -490,6 +490,20 @@ export function ChatInterface() {
                                                         Branch
                                                     </Button>
                                                 )}
+                                                <Button 
+                                                    variant="ghost" 
+                                                    size="sm"
+                                                    className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground gap-1.5"
+                                                    onClick={() => toggleContextItem({ id: node.id, type: 'node', name: (node.summary || node.userPrompt).slice(0, 30) + '...' })}
+                                                    title={contextItems.some(i => i.id === node.id) ? "Remove from Context" : "Add to Context"}
+                                                >
+                                                    {contextItems.some(i => i.id === node.id) ? (
+                                                        <BookmarkCheck size={14} className="text-blue-500" />
+                                                    ) : (
+                                                        <Bookmark size={14} />
+                                                    )}
+                                                    Context
+                                                </Button>
                                                 {node.parentId && (
                                                     <Button 
                                                         variant="ghost" 
@@ -531,11 +545,26 @@ export function ChatInterface() {
                     {contextItems.length > 0 && (
                          <div className="flex flex-wrap gap-2 mb-2">
                             {contextItems.map(item => (
-                                <div key={`${item.type}-${item.id}`} className="flex items-center gap-1 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-full px-2 py-1 text-xs text-blue-700 dark:text-blue-300 shadow-sm animate-in fade-in zoom-in duration-200">
+                                <div 
+                                    key={`${item.type}-${item.id}`} 
+                                    className="flex items-center gap-1 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-full px-2 py-1 text-xs text-blue-700 dark:text-blue-300 shadow-sm animate-in fade-in zoom-in duration-200 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/50"
+                                    onClick={() => {
+                                        if (item.type === 'node' || item.type === 'chat') {
+                                            setActiveNodeId(item.id);
+                                        } else if (item.type === 'folder') {
+                                            // Optionally expand folder in sidebar or focus first chat
+                                            // For now, let's just log it or maybe trigger a toast
+                                            // Ideally we might want to navigate to the folder view if it existed
+                                        }
+                                    }}
+                                >
                                     <BookmarkCheck size={12} />
                                     <span className="max-w-[150px] truncate font-medium">{item.name || item.type}</span>
                                     <button 
-                                        onClick={() => toggleContextItem(item)}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            toggleContextItem(item);
+                                        }}
                                         className="ml-1 hover:text-blue-900 dark:hover:text-blue-100 rounded-full hover:bg-blue-200/50 dark:hover:bg-blue-800/50 p-0.5"
                                         title="Remove reference"
                                     >
