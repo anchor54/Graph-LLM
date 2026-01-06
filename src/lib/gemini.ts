@@ -173,3 +173,44 @@ export async function summarizeInteraction(
         return ""; // Return empty on failure
     }
 }
+
+export async function generateNodeTitle(
+    userPrompt: string,
+    apiKey?: string
+): Promise<string> {
+    const ai = getClient(apiKey);
+    if (!ai) {
+        // Fallback: Use first 4-5 words of the user prompt
+        return userPrompt.split(/\s+/).slice(0, 5).join(' ');
+    }
+
+    try {
+        const prompt = `
+        Create a brief topic label (4-5 words max) for this query.
+        Write it like a heading or keyword phrase, not a complete sentence.
+        Avoid phrases like "asking about" or "the user". Be direct and concise.
+        Use lowercase, no quotes, no punctuation at the end.
+
+        Query: ${userPrompt}
+
+        Examples of good titles:
+        - "previous query recall"
+        - "implementing authentication system"
+        - "fixing database connection issue"
+
+        Topic label:
+        `;
+
+        const response = await ai.models.generateContent({
+            model: DEFAULT_MODEL,
+            contents: prompt,
+        });
+
+        const title = response.text?.trim() || userPrompt.split(/\s+/).slice(0, 5).join(' ');
+        return title;
+    } catch (error) {
+        console.error('Error generating node title:', error);
+        // Fallback: Use first 4-5 words of the user prompt
+        return userPrompt.split(/\s+/).slice(0, 5).join(' ');
+    }
+}

@@ -22,6 +22,9 @@ const CustomNode = React.memo(({ data, id }: { data: any, id: string }) => {
     const isUser = data.label.startsWith('User:');
     const isReference = data.isReference;
     
+    // Clean label: if it starts with "User:" or "AI:", remove it since titles are now descriptive
+    const cleanLabel = data.label.replace(/^(User:|AI:)\s*/, '');
+    
     return (
         <div className={`px-4 py-2 shadow-md rounded-md border-2 w-[200px] text-xs ${
             data.isActive 
@@ -31,12 +34,12 @@ const CustomNode = React.memo(({ data, id }: { data: any, id: string }) => {
                     : 'border-border bg-card'
         }`}>
             <Handle type="target" position={Position.Top} className={`w-16 ${isReference ? '!bg-muted-foreground/50' : '!bg-muted'}`} />
-            <div className={`font-bold mb-1 ${isUser ? 'text-primary' : 'text-muted-foreground'}`}>
-                {isUser ? 'User' : 'AI'} {isReference && '(Ref)'}
+            <div className="text-foreground font-medium leading-tight line-clamp-3">
+                {cleanLabel}
             </div>
-            <div className="truncate text-muted-foreground">
-                {data.label.replace(/^(User:|AI:)\s*/, '')}
-            </div>
+            {isReference && (
+                <div className="mt-1 text-[10px] text-muted-foreground italic">Referenced</div>
+            )}
             <Handle type="source" position={Position.Bottom} className={`w-16 ${isReference ? '!bg-muted-foreground/50' : '!bg-muted'}`} />
         </div>
     );
@@ -129,7 +132,7 @@ export function GraphVisualization() {
                     type: 'custom',
                     position: { x: 0, y: 0 },
                     data: {
-                        label: n.userPrompt ? `User: ${n.userPrompt}` : `AI: ${n.aiResponse || '...'}`,
+                        label: n.summary || (n.userPrompt ? `User: ${n.userPrompt}` : `AI: ${n.aiResponse || '...'}`),
                         isActive: n.id === currentNodeId,
                         references: n.references // Pass references to data
                     },
@@ -231,7 +234,7 @@ export function GraphVisualization() {
                 type: 'custom',
                 position: { x: 0, y: 0 },
                 data: {
-                    label: n.userPrompt ? `User: ${n.userPrompt}` : `AI: ${n.aiResponse || '...'}`,
+                    label: n.summary || (n.userPrompt ? `User: ${n.userPrompt}` : `AI: ${n.aiResponse || '...'}`),
                     isActive: false,
                     isReference: true
                 },
@@ -288,7 +291,7 @@ export function GraphVisualization() {
                 type: 'custom',
                 position: { x: xPosition, y: currentYOffset },
                 data: {
-                    label: nodeData.userPrompt ? `User: ${nodeData.userPrompt}` : `AI: ${nodeData.aiResponse || '...'}`,
+                    label: nodeData.summary || (nodeData.userPrompt ? `User: ${nodeData.userPrompt}` : `AI: ${nodeData.aiResponse || '...'}`),
                     isActive: false,
                     isReference: true
                 },

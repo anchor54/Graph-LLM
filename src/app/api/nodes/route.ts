@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { generateGeminiResponse, summarizeInteraction, generateChatName, DEFAULT_MODEL, streamGeminiResponse } from '@/lib/gemini';
+import { generateGeminiResponse, summarizeInteraction, generateChatName, DEFAULT_MODEL, streamGeminiResponse, generateNodeTitle } from '@/lib/gemini';
 import { createClient } from '@/lib/supabase/server';
 
 // Helper to fetch ancestor chain
@@ -198,26 +198,15 @@ export async function POST(request: Request) {
                     
                     // Stream finished
                     
-                    // 4. Compute Summary/Title & Update DB
-                    let newSummary = "";
-
-                    if (!parentId) {
-                        // New conversation - Generate Title
-                        newSummary = await generateChatName(userPrompt, fullAiResponse || "", apiKey);
-                    } else {
-                        // Existing conversation - Summarize THIS Interaction only
-                        newSummary = await summarizeInteraction(
-                            userPrompt,
-                            fullAiResponse || null,
-                            apiKey
-                        );
-                    }
+                    // 4. Compute Title & Update DB
+                    // Generate a short 4-5 word title based on user's query
+                    const nodeTitle = await generateNodeTitle(userPrompt, apiKey);
 
                     await prisma.node.update({
                         where: { id: node.id },
                         data: { 
                             aiResponse: fullAiResponse,
-                            summary: newSummary 
+                            summary: nodeTitle 
                         }
                     });
 
