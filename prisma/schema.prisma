@@ -15,21 +15,25 @@ model User {
 }
 
 model Node {
-  id            String   @id @default(uuid())
-  parentId      String?
-  parent        Node?    @relation("Tree", fields: [parentId], references: [id])
-  children      Node[]   @relation("Tree")
-  folderId      String?
-  folder        Folder?  @relation(fields: [folderId], references: [id], onDelete: Cascade)
-  userId        String
-  user          User     @relation(fields: [userId], references: [id])
-  summary       String?
-  userPrompt    String
-  aiResponse    String?
-  modelMetadata Json?
-  references    Json?    // Stores array of { id, type, name } used as context
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id              String          @id @default(uuid())
+  parentId        String?
+  parent          Node?           @relation("Tree", fields: [parentId], references: [id])
+  children        Node[]          @relation("Tree")
+  folderId        String?
+  folder          Folder?         @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User            @relation(fields: [userId], references: [id])
+  summary         String?
+  userPrompt      String
+  aiResponse      String?
+  modelMetadata   Json?
+  references      Json?           // Stores array of { id, type, name } used as context
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  
+  // Relations for summarization system
+  nodeDelta       NodeDelta?
+  branchSummaries BranchSummary[]
 }
 
 model Folder {
@@ -43,4 +47,33 @@ model Folder {
   nodes     Node[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model NodeDelta {
+  nodeId         String   @id
+  node           Node     @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  intent         String
+  newInformation Json     // { decisions: [], constraints: [], facts: [], rejected_options: [] }
+  openQuestions  Json     // Array of open questions
+  confidence     Float    @default(0.8)
+  derivedFrom    Json     // Array of parent node IDs
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model BranchSummary {
+  id            String   @id @default(uuid())
+  rootNodeId    String
+  rootNode      Node     @relation(fields: [rootNodeId], references: [id], onDelete: Cascade)
+  intent        String
+  content       Json     // { decisions: [], constraints: [], rejected_options: [], open_questions: [] }
+  confidence    Float    @default(0.8)
+  coveredNodes  Json     // Array of node IDs included in this summary
+  isStale       Boolean  @default(false)
+  version       Int      @default(1)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([rootNodeId, intent])
+  @@index([rootNodeId, isStale])
 }

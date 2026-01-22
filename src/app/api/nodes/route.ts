@@ -2,6 +2,13 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { generateGeminiResponse, summarizeInteraction, generateChatName, DEFAULT_MODEL, streamGeminiResponse, generateNodeTitle } from '@/lib/gemini';
 import { createClient } from '@/lib/supabase/server';
+import { assembleContext, formatContextForPrompt, hasSignificantContent } from '@/lib/context';
+import { 
+    inferIntent, 
+    generateNodeDelta, 
+    storeNodeDelta, 
+    invalidateBranchSummaries 
+} from '@/lib/summarization';
 
 // Helper to fetch ancestor chain
 async function getAncestorChain(nodeId: string, userId: string) {
@@ -54,108 +61,31 @@ export async function POST(request: Request) {
             create: { id: user.id, email: user.email! }
         });
 
-        // 1. Build Context from Ancestors
-        let promptContext = "";
-        let ancestorNodes: any[] = [];
-
+        // Validate parent exists if provided
         if (parentId) {
-            // Fetch the parent and all its ancestors
-            ancestorNodes = await getAncestorChain(parentId, user.id);
-            
-            // If parentId was provided but no nodes returned, it means the parent doesn't exist or isn't owned by user
-            if (ancestorNodes.length === 0) {
-                 const check = await prisma.node.findUnique({ where: { id: parentId } });
-                 if (!check || check.userId !== user.id) {
-                     return NextResponse.json({ error: 'Parent node not found' }, { status: 404 });
-                 }
+            const parentNode = await prisma.node.findUnique({ where: { id: parentId } });
+            if (!parentNode || parentNode.userId !== user.id) {
+                return NextResponse.json({ error: 'Parent node not found' }, { status: 404 });
             }
         }
 
-        // 1b. Fetch Referenced Conversations
-        let referencedContext = "";
-        if (referencedNodeIds && Array.isArray(referencedNodeIds) && referencedNodeIds.length > 0) {
-            const references = [];
-            for (const refId of referencedNodeIds) {
-                // We treat each refId as a point in a conversation and fetch history up to it
-                // If the user selected a "Chat" (root), this will just be the root. 
-                // To support "entire chat" if it's a tree, we might need more complex logic, 
-                // but for now "context up to this node" is the most well-defined semantics.
-                const chain = await getAncestorChain(refId, user.id);
-                if (chain.length > 0) {
-                    const chainText = chain.map(n => 
-                        `User: ${n.userPrompt}\nAI: ${n.aiResponse || "(No response)"}`
-                    ).join("\n\n");
-                    references.push(`Conversation ending at node ${refId}:\n${chainText}`);
-                }
-            }
-            if (references.length > 0) {
-                referencedContext = `--- REFERENCED CONVERSATIONS ---\n${references.join("\n\n---\n\n")}`;
-            }
-        }
+        // 1. Assemble Context using new Context Assembly System
+        const assembledContext = await assembleContext(
+            parentId || null,
+            user.id,
+            userPrompt,
+            referencedNodeIds || [],
+            apiKey
+        );
 
-        // Partition History
-        // We want the last 10 interactions as full text
-        const recentHistory = ancestorNodes.slice(-10);
-        // Everything before that is deep history
-        const olderHistory = ancestorNodes.slice(0, -10);
-
-        // Build Summaries from Deep History
-        const deepHistorySummary = olderHistory.map(node => {
-            const summary = node.summary;
-            if (summary) return `Summary of interaction: ${summary}`;
-            // Fallback if no summary exists
-            return `Interaction: User asked "${node.userPrompt.substring(0, 50)}..." and AI responded.`;
-        }).join("\n");
-
-        // Format Recent History (Full Text)
-        const recentHistoryText = recentHistory.map(node => 
-            `User: ${node.userPrompt}\nAI: ${node.aiResponse || "(No response)"}`
-        ).join("\n\n");
-
-        // Aggregate Citations
-        // 1. Ancestor citations
-        const ancestorCitations = ancestorNodes.flatMap(node => {
-            const meta = node.modelMetadata;
-            if (meta && typeof meta === 'object' && !Array.isArray(meta) && meta.citations && Array.isArray(meta.citations)) {
-                return meta.citations;
-            }
-            return [];
-        });
-
-        // 2. Current request citations
-        const currentCitations = citations || [];
-        const allCitations = [...ancestorCitations, ...currentCitations];
-        
-        // Deduplicate citations based on text
-        const uniqueCitationsMap = new Map();
-        allCitations.forEach(c => {
-            if (c && c.text) uniqueCitationsMap.set(c.text, c);
-        });
-        const uniqueCitations = Array.from(uniqueCitationsMap.values());
-
-        // Construct Final Prompt Context
-        const contextParts = [];
-        
-        if (referencedContext) {
-            contextParts.push(referencedContext);
-        }
-
-        if (deepHistorySummary) {
-            contextParts.push(`--- PREVIOUS CONVERSATION SUMMARIES ---\n${deepHistorySummary}`);
-        }
-        
-        if (uniqueCitations.length > 0) {
-            const citationText = uniqueCitations.map((c: any) => 
+        // Add citations to context if provided
+        let promptContext = assembledContext.contextText;
+        if (citations && citations.length > 0) {
+            const citationText = citations.map((c: any) => 
                 `"${c.text}" (Source: ${c.source === 'user' ? 'User' : 'AI'} message)`
             ).join('\n');
-            contextParts.push(`--- REFERENCED QUOTES ---\n${citationText}`);
+            promptContext = `${promptContext}\n\n--- REFERENCED QUOTES ---\n${citationText}`;
         }
-
-        if (recentHistoryText) {
-             contextParts.push(`--- RECENT CONVERSATION ---\n${recentHistoryText}`);
-        }
-
-        promptContext = contextParts.join("\n\n");
 
         // 2. Create the new node
         const node = await prisma.node.create({
@@ -196,10 +126,9 @@ export async function POST(request: Request) {
                         controller.enqueue(encoder.encode(`data: ${data}\n\n`));
                     }
                     
-                    // Stream finished
+                    // Stream finished - Now process the response
                     
                     // 4. Compute Title & Update DB
-                    // Generate a short 4-5 word title based on user's query
                     const nodeTitle = await generateNodeTitle(userPrompt, apiKey);
 
                     await prisma.node.update({
@@ -209,6 +138,78 @@ export async function POST(request: Request) {
                             summary: nodeTitle 
                         }
                     });
+
+                    // 5. Generate and Store Node Delta Summary
+                    try {
+                        // Infer intent for this node
+                        const parentIntent = parentId 
+                            ? (await prisma.nodeDelta.findUnique({ where: { nodeId: parentId } }))?.intent 
+                            : undefined;
+                        
+                        const nodeIntent = await inferIntent(
+                            userPrompt, 
+                            fullAiResponse, 
+                            parentIntent, 
+                            apiKey
+                        );
+
+                        // Generate node delta
+                        const nodeDelta = await generateNodeDelta(
+                            node.id,
+                            userPrompt,
+                            fullAiResponse,
+                            nodeIntent,
+                            parentId ? [parentId] : [],
+                            apiKey
+                        );
+
+                        // Store it
+                        await storeNodeDelta(
+                            node.id,
+                            nodeDelta.intent,
+                            nodeDelta.newInformation,
+                            nodeDelta.openQuestions,
+                            nodeDelta.confidence,
+                            parentId ? [parentId] : []
+                        );
+
+                        // 6. Invalidate branch summaries if significant content
+                        if (hasSignificantContent(nodeDelta.newInformation)) {
+                            // Find the branch root to invalidate
+                            let currentNodeId = node.id;
+                            let branchRoot = currentNodeId;
+                            
+                            // Walk up to find root (node with no parent or first in folder)
+                            while (currentNodeId) {
+                                const currentNode = await prisma.node.findUnique({
+                                    where: { id: currentNodeId },
+                                    select: { id: true, parentId: true },
+                                });
+                                
+                                if (!currentNode?.parentId) {
+                                    branchRoot = currentNode?.id || branchRoot;
+                                    break;
+                                }
+                                
+                                branchRoot = currentNode.parentId;
+                                currentNodeId = currentNode.parentId;
+                            }
+
+                            await invalidateBranchSummaries(branchRoot, true);
+                        }
+
+                        // Send metadata about summarization (optional)
+                        const metadataMsg = JSON.stringify({ 
+                            summarization: {
+                                intent: nodeIntent,
+                                contextMetadata: assembledContext.metadata
+                            }
+                        });
+                        controller.enqueue(encoder.encode(`data: ${metadataMsg}\n\n`));
+                    } catch (summaryError) {
+                        console.error('Error generating node delta:', summaryError);
+                        // Don't fail the whole request if summarization fails
+                    }
 
                 } catch (e) {
                     console.error("Streaming error:", e);
