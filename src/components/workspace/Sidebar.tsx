@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { FolderTree } from './FolderTree';
 import { Button } from '@/components/ui/button';
-import { FolderPlus, MessageSquarePlus, LogOut, Key } from 'lucide-react';
+import { FolderPlus, MessageSquarePlus, LogOut } from 'lucide-react';
 import { useWorkspace } from '@/context/WorkspaceContext';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -17,11 +17,9 @@ import {
 import { Input } from '@/components/ui/input';
 
 export function Sidebar() {
-    const { setActiveNodeId, setActiveFolderId, triggerFolderRefresh, setGeminiApiKey } = useWorkspace();
+    const { setActiveNodeId, setActiveFolderId, triggerFolderRefresh } = useWorkspace();
     const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
-    const [isApiKeyDialogOpen, setIsApiKeyDialogOpen] = useState(false);
     const [newFolderName, setNewFolderName] = useState('');
-    const [apiKeyInputValue, setApiKeyInputValue] = useState('');
     const [isCreating, setIsCreating] = useState(false);
     const router = useRouter();
     const supabase = createClient();
@@ -55,14 +53,6 @@ export function Sidebar() {
         await supabase.auth.signOut();
         router.push('/login');
         router.refresh();
-    };
-
-    const handleUpdateApiKey = () => {
-        if (apiKeyInputValue.trim()) {
-            setGeminiApiKey(apiKeyInputValue.trim());
-            setApiKeyInputValue('');
-            setIsApiKeyDialogOpen(false);
-        }
     };
 
     return (
@@ -99,10 +89,6 @@ export function Sidebar() {
             </div>
 
             <div className="mt-4 pt-4 border-t border-sidebar-border shrink-0 space-y-1">
-                <Button variant="ghost" className="w-full justify-start gap-2" onClick={() => setIsApiKeyDialogOpen(true)}>
-                    <Key size={16} />
-                    Change API Key
-                </Button>
                 <Button variant="ghost" className="w-full justify-start gap-2 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={handleLogout}>
                     <LogOut size={16} />
                     Sign Out
@@ -126,29 +112,6 @@ export function Sidebar() {
                         <Button variant="ghost" onClick={() => setIsCreateFolderOpen(false)}>Cancel</Button>
                         <Button onClick={handleCreateFolder} disabled={isCreating || !newFolderName.trim()}>
                             Create
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-            <Dialog open={isApiKeyDialogOpen} onOpenChange={setIsApiKeyDialogOpen}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Update Gemini API Key</DialogTitle>
-                    </DialogHeader>
-                    <div className="py-4">
-                        <Input
-                            placeholder="Enter new API key"
-                            value={apiKeyInputValue}
-                            onChange={(e) => setApiKeyInputValue(e.target.value)}
-                            type="password"
-                            autoComplete="off"
-                            onKeyDown={(e) => e.key === 'Enter' && handleUpdateApiKey()}
-                        />
-                    </div>
-                    <DialogFooter>
-                        <Button variant="ghost" onClick={() => setIsApiKeyDialogOpen(false)}>Cancel</Button>
-                        <Button onClick={handleUpdateApiKey} disabled={!apiKeyInputValue.trim()}>
-                            Update Key
                         </Button>
                     </DialogFooter>
                 </DialogContent>

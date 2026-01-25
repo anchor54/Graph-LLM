@@ -13,8 +13,6 @@ interface WorkspaceContextType {
     triggerGraphRefresh: () => void;
     folderRefreshTrigger: number;
     triggerFolderRefresh: () => void;
-    geminiApiKey: string | null;
-    setGeminiApiKey: (key: string) => void;
     contextItems: ContextItem[];
     toggleContextItem: (item: ContextItem) => void;
     nodeError: string | null;
@@ -29,16 +27,10 @@ export function WorkspaceProvider({ children, nodeId }: { children: ReactNode; n
     const [activeNodeId, setActiveNodeIdState] = useState<string | null>(nodeId);
     const [graphRefreshTrigger, setGraphRefreshTrigger] = useState(0);
     const [folderRefreshTrigger, setFolderRefreshTrigger] = useState(0);
-    const [geminiApiKey, setGeminiApiKeyState] = useState<string | null>(null);
     const [contextItems, setContextItems] = useState<ContextItem[]>([]);
     const [nodeError, setNodeError] = useState<string | null>(null);
 
     useEffect(() => {
-        const key = localStorage.getItem('gemini_api_key');
-        if (key) {
-            setGeminiApiKeyState(key);
-        }
-
         const storedContext = localStorage.getItem('workspace_context_items');
         if (storedContext) {
             try {
@@ -96,11 +88,6 @@ export function WorkspaceProvider({ children, nodeId }: { children: ReactNode; n
         setActiveNodeIdState(id);
     };
 
-    const setGeminiApiKey = (key: string) => {
-        localStorage.setItem('gemini_api_key', key);
-        setGeminiApiKeyState(key);
-    };
-
     const toggleContextItem = (item: ContextItem) => {
         setContextItems(prev => {
             const exists = prev.some(i => i.id === item.id && i.type === item.type);
@@ -138,8 +125,6 @@ export function WorkspaceProvider({ children, nodeId }: { children: ReactNode; n
                 triggerGraphRefresh,
                 folderRefreshTrigger,
                 triggerFolderRefresh,
-                geminiApiKey,
-                setGeminiApiKey,
                 contextItems,
                 toggleContextItem,
                 nodeError,

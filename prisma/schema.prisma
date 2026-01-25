@@ -7,11 +7,12 @@ datasource db {
 }
 
 model User {
-  id        String   @id
-  email     String   @unique
-  createdAt DateTime @default(now())
-  nodes     Node[]
-  folders   Folder[]
+  id         String      @id
+  email      String      @unique
+  createdAt  DateTime    @default(now())
+  nodes      Node[]
+  folders    Folder[]
+  userModels UserModel[]
 }
 
 model Node {
@@ -43,4 +44,33 @@ model Folder {
   nodes     Node[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model Model {
+  id          String      @id @default(uuid())
+  provider    String      // 'gemini' or 'openai'
+  name        String      // e.g., 'gpt-4o', 'gemini-2.5-flash'
+  displayName String
+  enabled     Boolean     @default(true)
+  isGlobal    Boolean     @default(true) // Global model available to all
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  userModels  UserModel[]
+
+  @@unique([provider, name])
+  @@index([provider, enabled])
+}
+
+model UserModel {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  modelId   String
+  model     Model    @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  enabled   Boolean  @default(true) // User-specific override
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, modelId])
+  @@index([userId])
 }

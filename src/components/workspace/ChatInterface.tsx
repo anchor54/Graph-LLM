@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { useWorkspace } from '@/context/WorkspaceContext';
 import { Node, ContextItem } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -64,7 +65,8 @@ const CodeBlock = ({ inline, className, children, isDark }: any) => {
 };
 
 export function ChatInterface() {
-    const { activeNodeId, setActiveNodeId, graphRefreshTrigger, triggerGraphRefresh, triggerFolderRefresh, activeFolderId, geminiApiKey, contextItems, toggleContextItem } = useWorkspace();
+    const router = useRouter();
+    const { activeNodeId, setActiveNodeId, graphRefreshTrigger, triggerGraphRefresh, triggerFolderRefresh, activeFolderId, contextItems, toggleContextItem } = useWorkspace();
     const [messages, setMessages] = useState<Node[]>([]);
     const [loading, setLoading] = useState(false);
     const [inputText, setInputText] = useState('');
@@ -93,15 +95,9 @@ export function ChatInterface() {
 
     // Fetch available models on mount
     useEffect(() => {
-        if (!geminiApiKey) return;
-
         const fetchModels = async () => {
             try {
-                const res = await fetch('/api/models', {
-                    headers: {
-                        'x-gemini-api-key': geminiApiKey
-                    }
-                });
+                const res = await fetch('/api/models');
                 if (res.ok) {
                     const models = await res.json();
                     setAvailableModels(models);
@@ -113,7 +109,7 @@ export function ChatInterface() {
             }
         };
         fetchModels();
-    }, [geminiApiKey]);
+    }, []);
 
     // Fetch ancestry when activeNodeId changes
     useEffect(() => {
@@ -218,8 +214,7 @@ export function ChatInterface() {
             const res = await fetch('/api/nodes', {
                 method: 'POST',
                 headers: { 
-                    'Content-Type': 'application/json',
-                    'x-gemini-api-key': geminiApiKey || ''
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
                     userPrompt,
@@ -282,8 +277,6 @@ export function ChatInterface() {
                                         }
                                         return newMessages;
                                     });
-                                    setActiveNodeId(nodeId);
-                                    triggerGraphRefresh(); // Refresh tree to show new chat immediately
                                 }
                             } catch (e) {
                                 console.error('Error parsing stream chunk', e);
@@ -293,6 +286,11 @@ export function ChatInterface() {
                 }
             }
 
+            // After streaming completes, update URL and refresh graph
+            // Messages are already updated in state from streaming, so just update URL
+            if (nodeId) {
+                router.replace(`/${nodeId}`, { scroll: false });
+            }
             triggerGraphRefresh();
         } catch (error) {
             console.error('Failed to send message', error);
@@ -609,9 +607,9 @@ export function ChatInterface() {
                                             {modelsLoading ? (
                                                 <SelectItem value="loading" disabled>Loading models...</SelectItem>
                                             ) : availableModels.length > 0 ? (
-                                                availableModels.map((model) => (
+                                                availableModels.map((model: any) => (
                                                     <SelectItem key={model.name} value={model.name}>
-                                                        {model.displayName}
+                                                        {model.displayName} {model.provider && `(${model.provider})`}
                                                     </SelectItem>
                                                 ))
                                             ) : (

@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { generateGeminiResponse, summarizeInteraction, generateChatName, DEFAULT_MODEL, streamGeminiResponse, generateNodeTitle } from '@/lib/gemini';
+import { generateNodeTitle as generateGeminiNodeTitle, DEFAULT_MODEL } from '@/lib/gemini';
+import { generateNodeTitle as generateOpenAINodeTitle } from '@/lib/openai';
+import { streamModelResponse, detectProvider } from '@/lib/models';
 import { createClient } from '@/lib/supabase/server';
 
 // Helper to fetch ancestor chain
@@ -40,7 +42,6 @@ export async function POST(request: Request) {
 
         const body = await request.json();
         const { userPrompt, parentId, folderId, modelMetadata, citations, referencedNodeIds, references } = body;
-        const apiKey = request.headers.get('x-gemini-api-key') || undefined;
 
         // Validate required fields
         if (!userPrompt) {
@@ -158,6 +159,9 @@ export async function POST(request: Request) {
         promptContext = contextParts.join("\n\n");
 
         // 2. Create the new node
+        const modelName = modelMetadata?.model || DEFAULT_MODEL;
+        const provider = detectProvider(modelName);
+        
         const node = await prisma.node.create({
             data: {
                 userPrompt,
@@ -166,6 +170,7 @@ export async function POST(request: Request) {
                 folderId: folderId || undefined,
                 modelMetadata: {
                     ...(modelMetadata ?? {}),
+                    provider,
                     citations: citations ?? []
                 },
                 references: references ?? [],
@@ -175,8 +180,11 @@ export async function POST(request: Request) {
         });
 
         // 3. Setup Streaming Response
-        const modelName = modelMetadata?.model || DEFAULT_MODEL;
-        const stream = streamGeminiResponse(userPrompt, modelName, promptContext || undefined, apiKey);
+        const stream = streamModelResponse(
+            userPrompt,
+            modelName,
+            promptContext || undefined
+        );
         
         const encoder = new TextEncoder();
         
@@ -200,7 +208,9 @@ export async function POST(request: Request) {
                     
                     // 4. Compute Title & Update DB
                     // Generate a short 4-5 word title based on user's query
-                    const nodeTitle = await generateNodeTitle(userPrompt, apiKey);
+                    const nodeTitle = provider === 'openai'
+                        ? await generateOpenAINodeTitle(userPrompt)
+                        : await generateGeminiNodeTitle(userPrompt);
 
                     await prisma.node.update({
                         where: { id: node.id },
