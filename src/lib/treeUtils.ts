@@ -75,3 +75,32 @@ export function getChildren(nodesById: Map<string, Node>, parentId: string): Nod
     });
     return children;
 }
+
+/**
+ * Returns all descendant node IDs of a given root node (excluding the root itself).
+ */
+export function getDescendants(nodesById: Map<string, Node>, rootId: string): Set<string> {
+    const descendants = new Set<string>();
+    
+    // Build adjacency list for O(1) child lookup
+    const childrenMap = new Map<string, string[]>();
+    nodesById.forEach(node => {
+        if (node.parentId) {
+            if (!childrenMap.has(node.parentId)) childrenMap.set(node.parentId, []);
+            childrenMap.get(node.parentId)!.push(node.id);
+        }
+    });
+
+    const stack = [rootId];
+    
+    while(stack.length > 0) {
+        const currentId = stack.pop()!;
+        const children = childrenMap.get(currentId) || [];
+        children.forEach(childId => {
+            descendants.add(childId);
+            stack.push(childId);
+        });
+    }
+    
+    return descendants;
+}

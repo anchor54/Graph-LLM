@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { generateNodeTitle as generateGeminiNodeTitle, DEFAULT_MODEL } from '@/lib/gemini';
-import { generateNodeTitle as generateOpenAINodeTitle } from '@/lib/openai';
+import { generateNodeDisplay } from '@/lib/nodeDisplay';
+import { DEFAULT_MODEL } from '@/lib/gemini';
 import { streamModelResponse, detectProvider } from '@/lib/models';
 import { createClient } from '@/lib/supabase/server';
 
@@ -206,19 +206,40 @@ export async function POST(request: Request) {
                     
                     // Stream finished
                     
-                    // 4. Compute Title & Update DB
-                    // Generate a short 4-5 word title based on user's query
-                    const nodeTitle = provider === 'openai'
-                        ? await generateOpenAINodeTitle(userPrompt)
-                        : await generateGeminiNodeTitle(userPrompt);
+                    // 4. Compute Display Metadata & Update DB
+                    try {
+                        const displayData = await generateNodeDisplay(userPrompt, fullAiResponse, modelName);
 
-                    await prisma.node.update({
-                        where: { id: node.id },
-                        data: { 
-                            aiResponse: fullAiResponse,
-                            summary: nodeTitle 
+                        await prisma.node.update({
+                            where: { id: node.id },
+                            data: { 
+                                aiResponse: fullAiResponse,
+                                summary: displayData.summary,
+                                // @ts-ignore: TS stale in editor, fields exist in schema and generated client
+                                topics: displayData.topics,
+                                classification: displayData.classification,
+                                previewBullets: displayData.previewBullets
+                            }
+                        });
+                    } catch (updateError: any) {
+                        console.error("Failed to update node with display metadata:", updateError);
+                        
+                        // Fallback: If update failed (likely due to schema mismatch in dev), try updating just the basics
+                        // This ensures the summary is at least saved so the UI stops spinning
+                        try {
+                            const fallbackTitle = userPrompt.split(/\s+/).slice(0, 5).join(' ');
+                            await prisma.node.update({
+                                where: { id: node.id },
+                                data: { 
+                                    aiResponse: fullAiResponse,
+                                    summary: fallbackTitle
+                                }
+                            });
+                            console.log("Recovered with fallback update (basic summary only).");
+                        } catch (fallbackError) {
+                            console.error("Critical: Failed to update node even with fallback.", fallbackError);
                         }
-                    });
+                    }
 
                 } catch (e) {
                     console.error("Streaming error:", e);

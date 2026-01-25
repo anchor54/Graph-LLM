@@ -12,11 +12,16 @@ import ReactFlow, {
     Handle,
     Position,
     MarkerType,
+    useViewport,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import dagre from 'dagre';
 import { useWorkspace } from '@/context/WorkspaceContext';
-import { GitBranch, Bookmark, BookmarkCheck, Scissors, Trash2 } from 'lucide-react';
+import { 
+    GitBranch, Bookmark, BookmarkCheck, Scissors, Trash2, 
+    CheckCircle, Lightbulb, HelpCircle, AlertTriangle, ArrowRightCircle,
+    Link as LinkIcon, Minimize2, Maximize2, ChevronRight
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -26,34 +31,121 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { getChildrenCounts } from '@/lib/treeUtils';
+import { getChildrenCounts, getDescendants } from '@/lib/treeUtils';
+
+// Classification Icons
+const StateIcon = ({ type }: { type?: string }) => {
+    if (!type) return null;
+    switch (type) {
+        case 'decision': return <CheckCircle size={14} className="text-green-500" />;
+        case 'insight': return <Lightbulb size={14} className="text-yellow-500" />;
+        case 'open_question': return <HelpCircle size={14} className="text-blue-500" />;
+        case 'risk': return <AlertTriangle size={14} className="text-red-500" />;
+        case 'follow_up': return <ArrowRightCircle size={14} className="text-purple-500" />;
+        default: return null;
+    }
+};
 
 // Custom Node Component
 const CustomNode = React.memo(({ data, id }: { data: any, id: string }) => {
-    const isReference = data.isReference;
+    const { zoom } = useViewport();
     
-    // Clean label: if it starts with "User:" or "AI:", remove it since titles are now descriptive
+    // Handle Collapsed Placeholder
+    if (data.isCollapsedPlaceholder) {
+        return (
+             <div 
+                className="group/node relative px-3 py-2 shadow-sm rounded-md border border-dashed border-primary/50 bg-primary/5 w-[180px] text-xs flex items-center gap-2 cursor-pointer hover:bg-primary/10 transition-colors"
+                onClick={(e) => { e.stopPropagation(); data.onExpand(); }}
+            >
+                <Handle type="target" position={Position.Top} className="!bg-primary/20 w-8" />
+                <ChevronRight size={14} className="text-primary" />
+                <span className="font-medium text-primary">{data.label}</span>
+            </div>
+        );
+    }
+
+    const isReference = data.isReference;
+    const isHovered = data.isHovered;
+    const isActive = data.isActive;
+    const isCollapsed = data.isCollapsed;
+    
+    // Clean label
     const cleanLabel = data.label.replace(/^(User:|AI:)\s*/, '');
     
+    // Progressive Disclosure Levels
+    const showDetails = zoom > 0.5 || isHovered || isActive;
+    const showExtras = isHovered || isActive;
+    const showPreview = isActive;
+
     return (
-        <div className={`group/node relative px-4 py-2 shadow-md rounded-md border-2 w-[200px] text-xs ${
-            data.isActive 
-                ? 'border-primary ring-2 ring-ring' 
+        <div className={`group/node relative px-4 py-2 shadow-md rounded-md border-2 w-[220px] bg-card transition-all duration-200 ${
+            isActive 
+                ? 'border-primary ring-2 ring-ring z-20' 
                 : isReference
                     ? 'border-dashed border-muted-foreground/50 opacity-80 bg-muted/20'
-                    : 'border-border bg-card'
+                    : 'border-border hover:border-primary/50 z-10'
         }`}>
             <Handle type="target" position={Position.Top} className={`w-16 ${isReference ? '!bg-muted-foreground/50' : '!bg-muted'}`} />
-            <div className="text-foreground font-medium leading-tight line-clamp-3 mb-1">
-                {cleanLabel}
+            
+            {/* Header: Classification + Label */}
+            <div className="flex items-start gap-2">
+                {(data.classification || showExtras) && (
+                    <div className="mt-0.5 shrink-0" title={data.classification}>
+                        <StateIcon type={data.classification} />
+                    </div>
+                )}
+                <div className={`text-foreground font-medium leading-tight ${showPreview ? '' : 'line-clamp-2'} text-xs`}>
+                    {cleanLabel}
+                </div>
             </div>
-            {isReference && (
-                <div className="mt-1 text-[10px] text-muted-foreground italic">Referenced</div>
+
+            {/* Topics (Badges) - Show on Hover/Active */}
+            {showExtras && data.topics && data.topics.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                    {data.topics.map((t: string, i: number) => (
+                        <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-secondary text-secondary-foreground">
+                            {t}
+                        </span>
+                    ))}
+                </div>
+            )}
+
+            {/* Preview Bullets - Show only when Active */}
+            {showPreview && data.previewBullets && data.previewBullets.length > 0 && (
+                <div className="mt-2 space-y-1 border-t border-border/50 pt-2">
+                    {data.previewBullets.map((b: string, i: number) => (
+                        <div key={i} className="text-[10px] text-muted-foreground flex items-start gap-1">
+                            <span className="mt-1 block h-1 w-1 rounded-full bg-muted-foreground/50 shrink-0" />
+                            <span>{b}</span>
+                        </div>
+                    ))}
+                </div>
+            )}
+            
+            {/* Reference Indicator */}
+            {(isReference || (data.references && data.references.length > 0)) && (showExtras) && (
+                <div className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground italic">
+                    <LinkIcon size={10} />
+                    {isReference ? 'Referenced Node' : `${data.references.length} Refs`}
+                </div>
             )}
 
             {/* Action Buttons */}
             {!isReference && (
-                <div className="flex items-center gap-1 mt-2 opacity-0 group-hover/node:opacity-100 transition-opacity justify-center bg-background/95 backdrop-blur-sm rounded-md py-1 px-2 absolute -bottom-10 left-1/2 -translate-x-1/2 border border-border z-50 shadow-lg whitespace-nowrap">
+                <div className="flex items-center gap-1 mt-2 opacity-0 group-hover/node:opacity-100 transition-opacity justify-center bg-background/95 backdrop-blur-sm rounded-md py-1 px-2 absolute -bottom-10 left-1/2 -translate-x-1/2 border border-border z-50 shadow-lg whitespace-nowrap pointer-events-auto">
+                    {/* Collapse Toggle */}
+                    {data.childrenCount > 0 && (
+                        <Button
+                             variant="ghost"
+                             size="icon"
+                             className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                             onClick={(e) => { e.stopPropagation(); data.onToggleCollapse(id); }}
+                             title={isCollapsed ? "Expand" : "Collapse Branch"}
+                        >
+                            {isCollapsed ? <Maximize2 size={12} /> : <Minimize2 size={12} />}
+                        </Button>
+                    )}
+
                     {data.childrenCount > 0 && (
                         <Button 
                             variant="ghost" 
@@ -117,8 +209,8 @@ const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = 'TB', off
     const dagreGraph = new dagre.graphlib.Graph();
     dagreGraph.setDefaultEdgeLabel(() => ({}));
 
-    const nodeWidth = 200;
-    const nodeHeight = 60;
+    const nodeWidth = 220;
+    const nodeHeight = 80;
 
     dagreGraph.setGraph({ rankdir: direction });
 
@@ -174,8 +266,33 @@ export function GraphVisualization() {
     const [nodes, setNodes, onNodesChange] = useNodesState([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState([]);
     const [nodeToDelete, setNodeToDelete] = useState<{ id: string, parentId: string | null } | null>(null);
+    const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+    const [collapsedNodeIds, setCollapsedNodeIds] = useState<Set<string>>(new Set());
+
+    // Load collapse state
+    useEffect(() => {
+        try {
+            const stored = localStorage.getItem('collapsed_nodes');
+            if (stored) {
+                setCollapsedNodeIds(new Set(JSON.parse(stored)));
+            }
+        } catch (e) {}
+    }, []);
 
     // Action Handlers
+    const toggleCollapse = useCallback((nodeId: string) => {
+        setCollapsedNodeIds(prev => {
+            const next = new Set(prev);
+            if (next.has(nodeId)) {
+                next.delete(nodeId);
+            } else {
+                next.add(nodeId);
+            }
+            localStorage.setItem('collapsed_nodes', JSON.stringify(Array.from(next)));
+            return next;
+        });
+    }, []);
+
     const handleBranch = useCallback((nodeId: string) => {
         switchNode(nodeId);
     }, [switchNode]);
@@ -241,33 +358,93 @@ export function GraphVisualization() {
         if (activeGraphNodes.length > 0) {
             const childrenCounts = getChildrenCounts(nodesById);
             
-            const flowNodes: Node[] = activeGraphNodes.map((n: any) => ({
-                id: n.id,
-                type: 'custom',
-                position: { x: 0, y: 0 },
-                data: {
-                    label: n.summary || (n.userPrompt ? `User: ${n.userPrompt}` : `AI: ${n.aiResponse || '...'}`),
-                    isActive: n.id === activeNodeId,
-                    references: n.references,
-                    parentId: n.parentId,
-                    childrenCount: childrenCounts.get(n.id) || 0,
-                    isContext: contextItems.some(i => i.id === n.id),
-                    onBranch: handleBranch,
-                    onToggleContext: toggleContextItem,
-                    onCut: handleCutToNewChat,
-                    onDelete: handleDeleteClick
-                },
-            }));
+            // --- Subtree Collapsing Logic ---
+            const hiddenNodeIds = new Set<string>();
+            const collapsedPlaceholders: Node[] = [];
 
-            const flowEdges: Edge[] = activeGraphNodes
-                .filter((n: any) => n.parentId)
-                .map((n: any) => ({
-                    id: `${n.parentId}-${n.id}`,
-                    source: n.parentId,
-                    target: n.id,
+            activeGraphNodes.forEach(node => {
+                if (collapsedNodeIds.has(node.id)) {
+                     // If node is already hidden, we don't process it (it's inside another collapsed tree)
+                     if (hiddenNodeIds.has(node.id)) return;
+
+                     const descendants = getDescendants(nodesById, node.id);
+                     descendants.forEach(id => hiddenNodeIds.add(id));
+                     
+                     // Add placeholder
+                     if (descendants.size > 0) {
+                         collapsedPlaceholders.push({
+                             id: `collapsed-${node.id}`,
+                             type: 'custom', 
+                             position: { x: 0, y: 0 },
+                             data: {
+                                 label: `${descendants.size} turns`, // Short label for placeholder
+                                 isCollapsedPlaceholder: true,
+                                 parentId: node.id,
+                                 onExpand: () => toggleCollapse(node.id),
+                             }
+                         });
+                     }
+                }
+            });
+
+            const visibleNodes = activeGraphNodes.filter(n => !hiddenNodeIds.has(n.id));
+            
+            const flowNodes: Node[] = [
+                ...visibleNodes.map((n: any) => ({
+                    id: n.id,
+                    type: 'custom',
+                    position: { x: 0, y: 0 },
+                    data: {
+                        label: n.summary || (n.userPrompt ? `User: ${n.userPrompt}` : `AI: ${n.aiResponse || '...'}`),
+                        isActive: n.id === activeNodeId,
+                        isHovered: false,
+                        isCollapsed: collapsedNodeIds.has(n.id),
+                        topics: n.topics,
+                        classification: n.classification,
+                        previewBullets: n.previewBullets,
+                        references: n.references,
+                        parentId: n.parentId,
+                        childrenCount: childrenCounts.get(n.id) || 0,
+                        isContext: contextItems.some(i => i.id === n.id),
+                        onBranch: handleBranch,
+                        onToggleContext: toggleContextItem,
+                        onCut: handleCutToNewChat,
+                        onDelete: handleDeleteClick,
+                        onToggleCollapse: toggleCollapse
+                    },
+                })),
+                ...collapsedPlaceholders.map(p => ({
+                    ...p,
+                    data: {
+                        ...p.data,
+                        // Ensure required handlers for safety, though placeholder doesn't use them all
+                        isActive: false, isHovered: false,
+                        onExpand: p.data.onExpand
+                    }
+                }))
+            ];
+
+            const flowEdges: Edge[] = [
+                // Standard Edges
+                ...visibleNodes
+                    .filter((n: any) => n.parentId && !hiddenNodeIds.has(n.parentId)) // Ensure parent is also visible
+                    .map((n: any) => ({
+                        id: `${n.parentId}-${n.id}`,
+                        source: n.parentId,
+                        target: n.id,
+                        type: 'smoothstep',
+                        markerEnd: { type: MarkerType.ArrowClosed },
+                    })),
+                // Placeholder Edges
+                ...collapsedPlaceholders.map(p => ({
+                    id: `${p.data.parentId}-${p.id}`,
+                    source: p.data.parentId,
+                    target: p.id,
                     type: 'smoothstep',
                     markerEnd: { type: MarkerType.ArrowClosed },
-                }));
+                    style: { strokeDasharray: '4,4' } // Dashed for placeholder
+                }))
+            ];
 
             const layouted = getLayoutedElements(flowNodes, flowEdges, 'TB', { x: 0, y: 0 });
             allNodes = [...allNodes, ...layouted.nodes];
@@ -337,7 +514,14 @@ export function GraphVisualization() {
         for (const result of contextResults) {
             if (!result) continue;
             const { rootId, treeData } = result;
-                    
+            
+            // Collapsing logic for context trees? 
+            // For now, let's keep them fully expanded as they are usually references.
+            // Or apply same logic? Since we use global `collapsedNodeIds`, it applies everywhere.
+            
+            // TODO: Apply collapse to context trees (Same logic as above)
+            // For brevity, skipping collapse in context trees for now to avoid duplication complexity
+            
             const flowNodes: Node[] = treeData.map((n: any) => ({
                 id: n.id,
                 type: 'custom',
@@ -345,7 +529,10 @@ export function GraphVisualization() {
                 data: {
                     label: n.summary || (n.userPrompt ? `User: ${n.userPrompt}` : `AI: ${n.aiResponse || '...'}`),
                     isActive: false,
-                    isReference: true
+                    isHovered: false,
+                    isReference: true,
+                    topics: n.topics,
+                    classification: n.classification,
                 },
             }));
 
@@ -398,7 +585,9 @@ export function GraphVisualization() {
                 data: {
                     label: nodeData.summary || (nodeData.userPrompt ? `User: ${nodeData.userPrompt}` : `AI: ${nodeData.aiResponse || '...'}`),
                     isActive: false,
-                    isReference: true
+                    isReference: true,
+                    topics: nodeData.topics,
+                    classification: nodeData.classification,
                 },
             });
         });
@@ -418,6 +607,7 @@ export function GraphVisualization() {
                     target: targetId,
                     type: 'default',
                     animated: true,
+                    hidden: true, // Hidden by default, toggled via hover
                     style: { stroke: '#94a3b8', strokeDasharray: '5,5', opacity: 0.6 },
                     label: 'Ref'
                 });
@@ -427,15 +617,43 @@ export function GraphVisualization() {
         setNodes(allNodes);
         setEdges(allEdges);
 
-    }, [nodesById, activeNodeId, contextItems, handleBranch, toggleContextItem, handleCutToNewChat, handleDeleteClick, setNodes, setEdges]);
+    }, [nodesById, activeNodeId, contextItems, handleBranch, toggleContextItem, handleCutToNewChat, handleDeleteClick, setNodes, setEdges, collapsedNodeIds, toggleCollapse]);
 
     // Rebuild graph when dependencies change
     useEffect(() => {
         buildGraph();
     }, [buildGraph]);
 
+    // Update edge visibility and node hover state
+    useEffect(() => {
+        setEdges(prevEdges => prevEdges.map(edge => {
+            // If it's a reference edge (starts with ref-)
+            if (edge.id.startsWith('ref-')) {
+                // Show if either source or target is hovered or active
+                const isRelevant = 
+                    edge.source === hoveredNodeId || 
+                    edge.target === hoveredNodeId || 
+                    edge.source === activeNodeId || 
+                    edge.target === activeNodeId;
+                
+                return { ...edge, hidden: !isRelevant };
+            }
+            return edge;
+        }));
+
+        setNodes(prevNodes => prevNodes.map(node => ({
+            ...node,
+            data: {
+                ...node.data,
+                isHovered: node.id === hoveredNodeId
+            }
+        })));
+    }, [hoveredNodeId, activeNodeId, setEdges, setNodes]);
+
     const onNodeClick = (_: React.MouseEvent, node: Node) => {
-        switchNode(node.id);
+        if (!node.data.isCollapsedPlaceholder) {
+            switchNode(node.id);
+        }
     };
 
     if (!activeNodeId && contextItems.length === 0) {
@@ -454,6 +672,8 @@ export function GraphVisualization() {
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onNodeClick={onNodeClick}
+                onNodeMouseEnter={(_, node) => setHoveredNodeId(node.id)}
+                onNodeMouseLeave={() => setHoveredNodeId(null)}
                 nodeTypes={nodeTypes}
                 fitView
             >
