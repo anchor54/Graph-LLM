@@ -16,6 +16,16 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import dagre from 'dagre';
 import { useWorkspace } from '@/context/WorkspaceContext';
+import { GitBranch, Bookmark, BookmarkCheck, Scissors, Trash2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 
 // Custom Node Component
 const CustomNode = React.memo(({ data, id }: { data: any, id: string }) => {
@@ -26,7 +36,7 @@ const CustomNode = React.memo(({ data, id }: { data: any, id: string }) => {
     const cleanLabel = data.label.replace(/^(User:|AI:)\s*/, '');
     
     return (
-        <div className={`px-4 py-2 shadow-md rounded-md border-2 w-[200px] text-xs ${
+        <div className={`group/node relative px-4 py-2 shadow-md rounded-md border-2 w-[200px] text-xs ${
             data.isActive 
                 ? 'border-primary ring-2 ring-ring' 
                 : isReference
@@ -34,12 +44,66 @@ const CustomNode = React.memo(({ data, id }: { data: any, id: string }) => {
                     : 'border-border bg-card'
         }`}>
             <Handle type="target" position={Position.Top} className={`w-16 ${isReference ? '!bg-muted-foreground/50' : '!bg-muted'}`} />
-            <div className="text-foreground font-medium leading-tight line-clamp-3">
+            <div className="text-foreground font-medium leading-tight line-clamp-3 mb-1">
                 {cleanLabel}
             </div>
             {isReference && (
                 <div className="mt-1 text-[10px] text-muted-foreground italic">Referenced</div>
             )}
+
+            {/* Action Buttons */}
+            {!isReference && (
+                <div className="flex items-center gap-1 mt-2 opacity-0 group-hover/node:opacity-100 transition-opacity justify-center bg-background/95 backdrop-blur-sm rounded-md py-1 px-2 absolute -bottom-10 left-1/2 -translate-x-1/2 border border-border z-50 shadow-lg whitespace-nowrap">
+                    {data.childrenCount > 0 && (
+                        <Button 
+                            variant="ghost" 
+                            size="icon"
+                            className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                            onClick={(e) => { e.stopPropagation(); data.onBranch(id); }}
+                            title="Branch"
+                        >
+                            <GitBranch size={12} />
+                        </Button>
+                    )}
+                    <Button 
+                        variant="ghost" 
+                        size="icon"
+                        className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                        onClick={(e) => { 
+                            e.stopPropagation(); 
+                            data.onToggleContext({ id, type: 'node', name: cleanLabel.slice(0, 30) + '...' }); 
+                        }}
+                        title={data.isContext ? "Remove from Context" : "Add to Context"}
+                    >
+                        {data.isContext ? (
+                            <BookmarkCheck size={12} className="text-blue-500" />
+                        ) : (
+                            <Bookmark size={12} />
+                        )}
+                    </Button>
+                     {data.parentId && (
+                        <Button 
+                            variant="ghost" 
+                            size="icon"
+                            className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                            onClick={(e) => { e.stopPropagation(); data.onCut(id); }}
+                            title="Cut to new chat"
+                        >
+                            <Scissors size={12} />
+                        </Button>
+                    )}
+                    <Button 
+                        variant="ghost" 
+                        size="icon"
+                        className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                        onClick={(e) => { e.stopPropagation(); data.onDelete(id, data.parentId); }}
+                        title="Delete"
+                    >
+                        <Trash2 size={12} />
+                    </Button>
+                </div>
+            )}
+
             <Handle type="source" position={Position.Bottom} className={`w-16 ${isReference ? '!bg-muted-foreground/50' : '!bg-muted'}`} />
         </div>
     );
@@ -98,9 +162,18 @@ const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = 'TB', off
 };
 
 export function GraphVisualization() {
-    const { activeNodeId, setActiveNodeId, graphRefreshTrigger, contextItems } = useWorkspace();
+    const { 
+        activeNodeId, 
+        setActiveNodeId, 
+        graphRefreshTrigger, 
+        triggerGraphRefresh,
+        triggerFolderRefresh,
+        contextItems, 
+        toggleContextItem 
+    } = useWorkspace();
     const [nodes, setNodes, onNodesChange] = useNodesState([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+    const [nodeToDelete, setNodeToDelete] = useState<{ id: string, parentId: string | null } | null>(null);
 
     // Helper to find root from active node
     const findRoot = async (nodeId: string) => {
@@ -111,6 +184,63 @@ export function GraphVisualization() {
             return root ? root.id : nodeId;
         }
         return nodeId;
+    };
+
+    // Action Handlers
+    const handleBranch = useCallback((nodeId: string) => {
+        setActiveNodeId(nodeId);
+    }, [setActiveNodeId]);
+
+    const handleCutToNewChat = useCallback(async (nodeId: string) => {
+        try {
+            const res = await fetch('/api/nodes', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: nodeId,
+                    parentId: null
+                }),
+            });
+
+            if (res.ok) {
+                triggerFolderRefresh();
+                triggerGraphRefresh();
+            } else {
+                console.error('Failed to cut node');
+            }
+        } catch (error) {
+            console.error('Error cutting node:', error);
+        }
+    }, [triggerFolderRefresh, triggerGraphRefresh]);
+
+    const handleDeleteClick = useCallback((nodeId: string, parentId: string | null) => {
+        setNodeToDelete({ id: nodeId, parentId });
+    }, []);
+
+    const handleConfirmDelete = async (mode: 'single' | 'subtree') => {
+        if (!nodeToDelete) return;
+        
+        try {
+            const res = await fetch(`/api/nodes?id=${nodeToDelete.id}&mode=${mode}`, {
+                method: 'DELETE',
+            });
+
+            if (res.ok) {
+                // If subtree delete, or if we deleted the active node itself, navigate to parent.
+                // If single delete of an ancestor, the active node (descendant) is preserved (reparented), so stay.
+                if (mode === 'subtree' || activeNodeId === nodeToDelete.id) {
+                    setActiveNodeId(nodeToDelete.parentId);
+                }
+                
+                triggerGraphRefresh();
+                triggerFolderRefresh();
+                setNodeToDelete(null);
+            } else {
+                console.error('Failed to delete node');
+            }
+        } catch (error) {
+            console.error('Error deleting node:', error);
+        }
     };
 
     const fetchGraph = useCallback(async (currentNodeId: string | null) => {
@@ -126,6 +256,14 @@ export function GraphVisualization() {
             if (res.ok) {
                 const treeData = await res.json();
                 activeGraphNodes = treeData;
+
+                // Calculate children counts
+                const childrenCounts = new Map<string, number>();
+                treeData.forEach((n: any) => {
+                    if (n.parentId) {
+                        childrenCounts.set(n.parentId, (childrenCounts.get(n.parentId) || 0) + 1);
+                    }
+                });
                 
                 const flowNodes: Node[] = treeData.map((n: any) => ({
                     id: n.id,
@@ -134,7 +272,14 @@ export function GraphVisualization() {
                     data: {
                         label: n.summary || (n.userPrompt ? `User: ${n.userPrompt}` : `AI: ${n.aiResponse || '...'}`),
                         isActive: n.id === currentNodeId,
-                        references: n.references // Pass references to data
+                        references: n.references, // Pass references to data
+                        parentId: n.parentId, // Needed for actions
+                        childrenCount: childrenCounts.get(n.id) || 0,
+                        isContext: contextItems.some(i => i.id === n.id),
+                        onBranch: handleBranch,
+                        onToggleContext: toggleContextItem,
+                        onCut: handleCutToNewChat,
+                        onDelete: handleDeleteClick
                     },
                 }));
 
@@ -324,7 +469,7 @@ export function GraphVisualization() {
         setNodes(allNodes);
         setEdges(allEdges);
 
-    }, [graphRefreshTrigger, contextItems, setNodes, setEdges]);
+    }, [graphRefreshTrigger, contextItems, setNodes, setEdges, handleBranch, toggleContextItem, handleCutToNewChat, handleDeleteClick]);
 
     const prevTrigger = useRef(graphRefreshTrigger);
 
@@ -368,7 +513,7 @@ export function GraphVisualization() {
     }
 
     return (
-        <div className="h-full bg-background border-l border-border w-full">
+        <div className="h-full bg-background border-l border-border w-full relative">
             <ReactFlow
                 nodes={nodes}
                 edges={edges}
@@ -380,6 +525,34 @@ export function GraphVisualization() {
             >
                 <Background />
             </ReactFlow>
+
+             <Dialog open={!!nodeToDelete} onOpenChange={(open) => !open && setNodeToDelete(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Delete Message</DialogTitle>
+                        <DialogDescription>
+                            How would you like to delete this message?
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                        <div className="border rounded-md p-4 space-y-2 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => handleConfirmDelete('single')}>
+                            <div className="font-medium">Delete this message only</div>
+                            <div className="text-sm text-muted-foreground">
+                                The message will be removed. Any replies will be moved to the parent message.
+                            </div>
+                        </div>
+                        <div className="border border-destructive/50 rounded-md p-4 space-y-2 hover:bg-destructive/10 transition-colors cursor-pointer" onClick={() => handleConfirmDelete('subtree')}>
+                            <div className="font-medium text-destructive">Delete entire conversation from here</div>
+                            <div className="text-sm text-muted-foreground">
+                                This message and ALL subsequent replies in this thread will be permanently deleted.
+                            </div>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => setNodeToDelete(null)}>Cancel</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
