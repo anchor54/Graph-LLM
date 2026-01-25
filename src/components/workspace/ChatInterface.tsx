@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useWorkspace } from '@/context/WorkspaceContext';
 import { Node, ContextItem } from '@/types';
@@ -14,6 +14,7 @@ import { vscDarkPlus, vs } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { Skeleton } from '@/components/ui/skeleton';
 import { SelectionMenu } from './SelectionMenu';
 import { CitationsDisplay, Citation } from './CitationsDisplay';
+import { getAncestryPath, getChildrenCounts } from '@/lib/treeUtils';
 
 import {
     Select,
@@ -66,20 +67,39 @@ const CodeBlock = ({ inline, className, children, isDark }: any) => {
 
 export function ChatInterface() {
     const router = useRouter();
-    const { activeNodeId, setActiveNodeId, graphRefreshTrigger, triggerGraphRefresh, triggerFolderRefresh, activeFolderId, contextItems, toggleContextItem } = useWorkspace();
-    const [messages, setMessages] = useState<Node[]>([]);
-    const [loading, setLoading] = useState(false);
+    const { 
+        activeNodeId, 
+        switchNode, 
+        nodesById, 
+        addNode, 
+        updateNode, 
+        triggerGraphRefresh, 
+        triggerFolderRefresh, 
+        activeFolderId, 
+        contextItems, 
+        toggleContextItem 
+    } = useWorkspace();
+    
     const [inputText, setInputText] = useState('');
     const [sending, setSending] = useState(false);
     const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash');
     const [availableModels, setAvailableModels] = useState<{ name: string, displayName: string }[]>([]);
     const [modelsLoading, setModelsLoading] = useState(true);
     const [activeCitations, setActiveCitations] = useState<Citation[]>([]);
-    const [streamedResponse, setStreamedResponse] = useState('');
     const [mounted, setMounted] = useState(false);
     const [nodeToDelete, setNodeToDelete] = useState<{ id: string, parentId: string | null } | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+    // Compute messages from context
+    const messages = useMemo(() => {
+        if (!activeNodeId) return [];
+        const path = getAncestryPath(nodesById, activeNodeId);
+        // Sort by date asc (ancestry path is usually root -> leaf, but let's ensure sort)
+        return path.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    }, [activeNodeId, nodesById]);
+
+    const childrenCounts = useMemo(() => getChildrenCounts(nodesById), [nodesById]);
 
     useEffect(() => {
         setMounted(true);
@@ -111,73 +131,56 @@ export function ChatInterface() {
         fetchModels();
     }, []);
 
-    // Fetch ancestry when activeNodeId changes
+    // Focus textarea on active chat change
     useEffect(() => {
-        if (!activeNodeId) {
-            setMessages([]);
-            return;
-        }
-
-        const fetchHistory = async () => {
-            setLoading(true);
-            try {
-                // Fetch ancestry with children count
-                const res = await fetch(`/api/graph/${activeNodeId}?direction=ancestors&includeChildrenCount=true`);
-                if (res.ok) {
-                    const data: Node[] = await res.json();
-                    // Sort by date asc
-                    data.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-                    setMessages(data);
-                }
-            } catch (error) {
-                console.error('Failed to load chat history', error);
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchHistory();
-    }, [activeNodeId, graphRefreshTrigger]);
-
-    // Focus textarea on active chat change or when ready
-    useEffect(() => {
-        if (!loading && textareaRef.current) {
+        if (textareaRef.current) {
             textareaRef.current.focus();
         }
-    }, [activeNodeId, loading]);
+    }, [activeNodeId]);
 
     // Scroll to bottom
     useEffect(() => {
         if (scrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }
-    }, [messages, streamedResponse]);
+    }, [messages, sending]); // Re-scroll when messages change or sending state changes
 
     const handleSend = async () => {
         if (!inputText.trim()) return;
         setSending(true);
-        setStreamedResponse('');
 
         const userPrompt = inputText;
         setInputText(''); // Clear input immediately
 
+        const activeMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+        let parentId = activeMessage?.id || null;
+        
+        // Prevent parenting to a temp node if possible, though strict usage shouldn't happen here
+        // as we replace temp IDs. But just in case:
+        if (parentId?.startsWith('temp-')) {
+            // Fallback or wait? For now, assume previous flow finished.
+        }
+
+        const tempId = `temp-${Date.now()}`;
+
         // Optimistically add user message to UI
         const optimisticNode: Node = {
-            id: 'temp-id', // Temporary ID
+            id: tempId,
             userPrompt: userPrompt,
-            aiResponse: '', // Empty initially
+            aiResponse: '', 
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
-            parentId: messages.length > 0 ? messages[messages.length - 1].id : null,
-            folderId: messages.length > 0 ? messages[messages.length - 1].folderId : activeFolderId,
+            parentId: parentId,
+            folderId: activeMessage?.folderId || activeFolderId,
             modelMetadata: { model: selectedModel },
             citations: activeCitations,
-            references: contextItems, // Include current context items
+            references: contextItems, 
             summary: null
         } as any;
 
-        setMessages(prev => [...prev, optimisticNode]);
-        setActiveCitations([]); // Clear citations
+        addNode(optimisticNode);
+        switchNode(tempId);
+        setActiveCitations([]); 
 
         try {
             // Resolve Context Items to Node IDs
@@ -186,7 +189,6 @@ export function ChatInterface() {
             for (const item of contextItems) {
                 if (item.type === 'folder') {
                     try {
-                        // Fetch all root nodes in folder (recursive)
                         const res = await fetch(`/api/nodes?folderId=${item.id}&recursive=true&rootsOnly=true`);
                         if (res.ok) {
                             const nodes = await res.json();
@@ -200,17 +202,6 @@ export function ChatInterface() {
                 }
             }
 
-            const activeMessage = messages.length > 0 ? messages[messages.length - 1] : null;
-            let parentId = activeMessage?.id || null;
-
-            // Ensure we don't use a temporary ID as the parent
-            if (parentId === 'temp-id') {
-                const validParent = [...messages].reverse().find(m => m.id !== 'temp-id');
-                parentId = validParent?.id || null;
-            }
-
-            const folderId = activeMessage?.folderId || activeFolderId || null;
-
             const res = await fetch('/api/nodes', {
                 method: 'POST',
                 headers: { 
@@ -218,12 +209,12 @@ export function ChatInterface() {
                 },
                 body: JSON.stringify({
                     userPrompt,
-                    parentId,
-                    folderId,
+                    parentId: parentId, // Use the ID we linked the temp node to
+                    folderId: optimisticNode.folderId,
                     modelMetadata: { model: selectedModel },
                     citations: optimisticNode.citations,
                     referencedNodeIds: Array.from(referencedNodeIds),
-                    references: contextItems // Pass context items to save in DB
+                    references: contextItems
                 }),
             });
 
@@ -237,7 +228,7 @@ export function ChatInterface() {
             const reader = res.body?.getReader();
             const decoder = new TextDecoder();
             let aiResponse = '';
-            let nodeId = '';
+            let realNodeId = '';
 
             if (reader) {
                 while (true) {
@@ -253,30 +244,37 @@ export function ChatInterface() {
                                 const data = JSON.parse(line.substring(6));
                                 if (data.chunk) {
                                     aiResponse += data.chunk;
-                                    setStreamedResponse(aiResponse);
                                     
-                                    // Update the optimistic node with streamed content
-                                    setMessages(prev => {
-                                        const newMessages = [...prev];
-                                        const lastMsg = newMessages[newMessages.length - 1];
-                                        if (lastMsg.id === 'temp-id' || lastMsg.id === nodeId) {
-                                            lastMsg.aiResponse = aiResponse;
-                                            if (nodeId) lastMsg.id = nodeId; // Ensure ID is updated if we have it
-                                        }
-                                        return newMessages;
-                                    });
+                                    // Update the optimistic node (tempId)
+                                    // AND if we already have the real ID, update that too or switch?
+                                    // Actually, let's keep updating the temp node until we are done, 
+                                    // OR if we have the real ID, we should swap.
+                                    
+                                    if (realNodeId) {
+                                         updateNode(realNodeId, { aiResponse });
+                                    } else {
+                                         updateNode(tempId, { aiResponse });
+                                    }
                                 }
                                 if (data.nodeId) {
-                                    nodeId = data.nodeId;
-                                    // Update ID in state
-                                    setMessages(prev => {
-                                        const newMessages = [...prev];
-                                        const lastMsg = newMessages[newMessages.length - 1];
-                                        if (lastMsg.id === 'temp-id') {
-                                            lastMsg.id = nodeId;
-                                        }
-                                        return newMessages;
-                                    });
+                                    realNodeId = data.nodeId;
+                                    
+                                    // Create the real node, copying state from temp
+                                    // We can just add it. The ancestry path will then show BOTH if we aren't careful?
+                                    // No, switchNode changes the active path.
+                                    // But if we want to seamless swap:
+                                    const realNode: Node = {
+                                        ...optimisticNode,
+                                        id: realNodeId,
+                                        aiResponse: aiResponse // Ensure we have latest
+                                    };
+                                    addNode(realNode);
+                                    
+                                    // Switch to real node
+                                    switchNode(realNodeId);
+                                    
+                                    // Note: The temp node remains in nodesById but is no longer in the active path
+                                    // because the real node's parent is the same.
                                 }
                             } catch (e) {
                                 console.error('Error parsing stream chunk', e);
@@ -286,22 +284,16 @@ export function ChatInterface() {
                 }
             }
 
-            // After streaming completes, update URL and refresh graph
-            // Messages are already updated in state from streaming, so just update URL
-            if (nodeId) {
-                router.replace(`/${nodeId}`, { scroll: false });
-            }
-            triggerGraphRefresh();
+            triggerGraphRefresh(); // Sync fully with DB
         } catch (error) {
             console.error('Failed to send message', error);
         } finally {
             setSending(false);
-            setStreamedResponse('');
         }
     };
 
     const handleBranch = (nodeId: string) => {
-        setActiveNodeId(nodeId);
+        switchNode(nodeId);
     };
 
     const handleCutToNewChat = async (nodeId: string) => {
@@ -339,10 +331,8 @@ export function ChatInterface() {
             });
 
             if (res.ok) {
-                // If subtree delete, or if we deleted the active node itself, navigate to parent.
-                // If single delete of an ancestor, the active node (descendant) is preserved (reparented), so stay.
                 if (mode === 'subtree' || activeNodeId === nodeToDelete.id) {
-                    setActiveNodeId(nodeToDelete.parentId);
+                    switchNode(nodeToDelete.parentId);
                 }
                 
                 triggerGraphRefresh();
@@ -364,34 +354,12 @@ export function ChatInterface() {
         setActiveCitations(prev => prev.filter((_, i) => i !== index));
     };
 
-    // Render input even if empty
     return (
         <div className="h-full flex flex-col bg-background text-foreground relative">
             <SelectionMenu onQuote={handleQuote} />
             
-            {/* Context Header */}
-            {/* Removed redundant header since it's now in the input area */}
-            
             <div className="flex-1 overflow-y-auto p-4 space-y-4" ref={scrollRef}>
-                {loading ? (
-                    <div className="space-y-8 animate-in fade-in duration-300">
-                        {[1, 2].map((i) => (
-                            <div key={i} className="space-y-6">
-                                {/* User message skeleton */}
-                                <div className="flex flex-col items-end gap-1">
-                                    <Skeleton className="h-16 w-[70%] rounded-2xl rounded-tr-sm bg-muted/40" />
-                                </div>
-                                {/* AI response skeleton */}
-                                <div className="space-y-3 w-full max-w-3xl">
-                                    <Skeleton className="h-4 w-[90%] bg-muted/20" />
-                                    <Skeleton className="h-4 w-[95%] bg-muted/20" />
-                                    <Skeleton className="h-4 w-[85%] bg-muted/20" />
-                                    <Skeleton className="h-4 w-[60%] bg-muted/20" />
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                ) : !activeNodeId && messages.length === 0 ? (
+                { !activeNodeId && messages.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
                         <Bot size={48} className="mb-4 opacity-20" />
                         <p>Start a new conversation</p>
@@ -400,13 +368,14 @@ export function ChatInterface() {
                     messages.map((node, index) => {
                         const isLast = index === messages.length - 1;
                         const isGenerating = isLast && sending;
-                        console.log(node)
+
+                        // Check children count from map
+                        const childCount = childrenCounts.get(node.id) || 0;
 
                         return (
                             <div key={node.id} className="space-y-4 group">
                             {/* User Message */}
                             <div className="flex flex-col items-end gap-1" data-message-id={node.id} data-message-source="user">
-                                {/* Display Citations if this message used them */}
                                 {(node as any).citations && (node as any).citations.length > 0 && (
                                     <div className="mb-1 text-right">
                                         {(node as any).citations.map((c: any, i: number) => (
@@ -418,10 +387,9 @@ export function ChatInterface() {
                                     </div>
                                 )}
 
-                                {/* Display References if this message used them */}
                                 {(node as any).references && (node as any).references.length > 0 && (
                                     <div className="mb-1 text-right flex flex-wrap justify-end gap-1">
-                                        {(node as any).references.map((r: any, i: number) => ( // Use 'any' to bypass strict check for now if Type mismatch
+                                        {(node as any).references.map((r: any, i: number) => (
                                             <div key={i} className="inline-flex items-center gap-1 bg-blue-50/50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-[10px] px-2 py-0.5 rounded-full">
                                                 <BookmarkCheck size={8} />
                                                 <span className="max-w-[150px] truncate">{r.name || r.type}</span>
@@ -473,10 +441,9 @@ export function ChatInterface() {
                                                 </div>
                                             </div>
                                         )}
-                                        {node.id !== 'temp-id' && !isGenerating && (
+                                        {!node.id.startsWith('temp-') && !isGenerating && (
                                             <div className="flex items-center gap-2 mt-2 opacity-0 group-hover/ai:opacity-100 transition-opacity">
-                                                {/* Only show Branch button if node has children */}
-                                                {(node as any).childrenCount > 0 && (
+                                                {childCount > 0 && (
                                                     <Button 
                                                         variant="ghost" 
                                                         size="sm"
@@ -539,7 +506,6 @@ export function ChatInterface() {
                 <div className="max-w-3xl mx-auto w-full space-y-3">
                     <CitationsDisplay citations={activeCitations} onRemove={handleRemoveCitation} />
                     
-                    {/* Active References Display in Input Area */}
                     {contextItems.length > 0 && (
                          <div className="flex flex-wrap gap-2 mb-2">
                             {contextItems.map(item => (
@@ -548,11 +514,7 @@ export function ChatInterface() {
                                     className="flex items-center gap-1 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-full px-2 py-1 text-xs text-blue-700 dark:text-blue-300 shadow-sm animate-in fade-in zoom-in duration-200 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/50"
                                     onClick={() => {
                                         if (item.type === 'node' || item.type === 'chat') {
-                                            setActiveNodeId(item.id);
-                                        } else if (item.type === 'folder') {
-                                            // Optionally expand folder in sidebar or focus first chat
-                                            // For now, let's just log it or maybe trigger a toast
-                                            // Ideally we might want to navigate to the folder view if it existed
+                                            switchNode(item.id);
                                         }
                                     }}
                                 >

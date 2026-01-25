@@ -1,14 +1,24 @@
 'use client';
 
-import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { ContextItem } from '@/types';
+import { ContextItem, Node } from '@/types';
+import { normalizeTree, getRoot } from '@/lib/treeUtils';
 
 interface WorkspaceContextType {
     activeFolderId: string | null;
     setActiveFolderId: (id: string | null) => void;
     activeNodeId: string | null;
-    setActiveNodeId: (id: string | null) => void;
+    setActiveNodeId: (id: string | null) => void; // Deprecated, use switchNode
+    switchNode: (id: string | null) => Promise<void>;
+    
+    // Tree State
+    nodesById: Map<string, Node>;
+    addNode: (node: Node) => void;
+    updateNode: (id: string, updates: Partial<Node>) => void;
+    loadTree: (rootId: string) => Promise<void>;
+    
+    // Legacy / Other
     graphRefreshTrigger: number;
     triggerGraphRefresh: () => void;
     folderRefreshTrigger: number;
@@ -25,6 +35,10 @@ export function WorkspaceProvider({ children, nodeId }: { children: ReactNode; n
     const router = useRouter();
     const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
     const [activeNodeId, setActiveNodeIdState] = useState<string | null>(nodeId);
+    
+    // Tree State
+    const [nodesById, setNodesById] = useState<Map<string, Node>>(new Map());
+    
     const [graphRefreshTrigger, setGraphRefreshTrigger] = useState(0);
     const [folderRefreshTrigger, setFolderRefreshTrigger] = useState(0);
     const [contextItems, setContextItems] = useState<ContextItem[]>([]);
@@ -39,54 +53,122 @@ export function WorkspaceProvider({ children, nodeId }: { children: ReactNode; n
                 console.error("Failed to parse context items", e);
             }
         }
+    }, []);
 
-        // Validate nodeId from route parameter if provided
+    // Load initial tree if nodeId is provided
+    useEffect(() => {
         if (nodeId) {
-            fetch(`/api/graph/${nodeId}`)
-                .then(res => {
-                    if (res.ok) {
-                        setActiveNodeIdState(nodeId);
-                        setNodeError(null); // Clear any previous errors
-                    } else if (res.status === 404) {
-                        setNodeError(`Chat node not found. The link may be invalid or you don't have access to it.`);
-                        console.error(`Node ${nodeId} not found or access denied`);
-                        // Redirect to home on invalid node
-                        router.replace('/', { scroll: false });
-                    } else if (res.status === 401) {
-                        setNodeError(`Please log in to view this chat node.`);
-                        router.replace('/', { scroll: false });
-                    } else {
-                        setNodeError(`Unable to load chat node. Please try again.`);
-                        router.replace('/', { scroll: false });
-                    }
-                })
-                .catch(err => {
-                    console.error('Error validating node:', err);
-                    setNodeError(`Network error while loading chat node.`);
-                    router.replace('/', { scroll: false });
-                });
+             // We need to find the root to load the whole tree
+             // But initially we might only have the nodeId.
+             // We can fetch the ancestry of the nodeId to find the root, then load the tree.
+             // Or simpler: just use the existing validation logic but upgrade it to load the tree.
+             
+             const init = async () => {
+                 try {
+                     // Get ancestry to find root
+                     const res = await fetch(`/api/graph/${nodeId}?direction=ancestors`);
+                     if (res.ok) {
+                         const ancestors: Node[] = await res.json();
+                         const root = ancestors.find(n => !n.parentId);
+                         if (root) {
+                             await loadTree(root.id);
+                             setActiveNodeIdState(nodeId);
+                             setNodeError(null);
+                         }
+                     } else if (res.status === 404) {
+                         setNodeError(`Chat node not found.`);
+                         router.replace('/', { scroll: false });
+                     } else {
+                         setNodeError(`Unable to load chat node.`);
+                     }
+                 } catch (e) {
+                     console.error("Failed to initialize tree", e);
+                     setNodeError(`Network error.`);
+                 }
+             };
+             
+             init();
         }
     }, [nodeId, router]);
 
     // Update URL when activeNodeId changes (for internal navigation)
     useEffect(() => {
-        // Don't update URL on initial mount if nodeId prop is set
+        // Don't update URL on initial mount if nodeId prop is set and matches
         if (nodeId && activeNodeId === nodeId) {
             return;
         }
 
-        // Navigate to the appropriate URL based on activeNodeId
         if (activeNodeId) {
-            router.push(`/${activeNodeId}`, { scroll: false });
+            window.history.pushState(null, '', `/${activeNodeId}`);
         } else if (activeNodeId === null && nodeId) {
-            // If we're clearing the active node while on a node route, go home
-            router.push('/', { scroll: false });
+            window.history.pushState(null, '', '/');
         }
-    }, [activeNodeId, nodeId, router]);
+    }, [activeNodeId, nodeId]);
 
+    const loadTree = useCallback(async (rootId: string) => {
+        try {
+            const res = await fetch(`/api/graph/${rootId}`);
+            if (res.ok) {
+                const nodes: Node[] = await res.json();
+                setNodesById(normalizeTree(nodes));
+            }
+        } catch (e) {
+            console.error("Failed to load tree", e);
+        }
+    }, []);
+
+    const switchNode = useCallback(async (id: string | null) => {
+        if (!id) {
+            setActiveNodeIdState(null);
+            return;
+        }
+
+        // Check if node exists in memory
+        if (nodesById.has(id)) {
+            setActiveNodeIdState(id);
+            return;
+        }
+
+        // If not in memory, we might need to load a different tree.
+        // Fetch ancestry to find the root of this new node.
+        try {
+            const res = await fetch(`/api/graph/${id}?direction=ancestors`);
+            if (res.ok) {
+                const ancestors: Node[] = await res.json();
+                const root = ancestors.find(n => !n.parentId);
+                if (root) {
+                    await loadTree(root.id);
+                    setActiveNodeIdState(id);
+                }
+            }
+        } catch (e) {
+            console.error("Failed to switch node", e);
+        }
+    }, [nodesById, loadTree]);
+
+    // Legacy support
     const setActiveNodeId = (id: string | null) => {
-        setActiveNodeIdState(id);
+        switchNode(id);
     };
+
+    const addNode = useCallback((node: Node) => {
+        setNodesById(prev => {
+            const newMap = new Map(prev);
+            newMap.set(node.id, node);
+            return newMap;
+        });
+    }, []);
+
+    const updateNode = useCallback((id: string, updates: Partial<Node>) => {
+        setNodesById(prev => {
+            const node = prev.get(id);
+            if (!node) return prev;
+            
+            const newMap = new Map(prev);
+            newMap.set(id, { ...node, ...updates });
+            return newMap;
+        });
+    }, []);
 
     const toggleContextItem = (item: ContextItem) => {
         setContextItems(prev => {
@@ -104,6 +186,11 @@ export function WorkspaceProvider({ children, nodeId }: { children: ReactNode; n
 
     const triggerGraphRefresh = () => {
         setGraphRefreshTrigger(prev => prev + 1);
+        // Also reload tree if active
+        if (activeNodeId) {
+             const root = getRoot(nodesById, activeNodeId);
+             if (root) loadTree(root.id);
+        }
     };
 
     const triggerFolderRefresh = () => {
@@ -121,6 +208,11 @@ export function WorkspaceProvider({ children, nodeId }: { children: ReactNode; n
                 setActiveFolderId,
                 activeNodeId,
                 setActiveNodeId,
+                switchNode,
+                nodesById,
+                addNode,
+                updateNode,
+                loadTree,
                 graphRefreshTrigger,
                 triggerGraphRefresh,
                 folderRefreshTrigger,

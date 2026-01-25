@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import ReactFlow, {
     Background,
     Controls,
@@ -26,10 +26,10 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { getChildrenCounts } from '@/lib/treeUtils';
 
 // Custom Node Component
 const CustomNode = React.memo(({ data, id }: { data: any, id: string }) => {
-    const isUser = data.label.startsWith('User:');
     const isReference = data.isReference;
     
     // Clean label: if it starts with "User:" or "AI:", remove it since titles are now descriptive
@@ -164,8 +164,8 @@ const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = 'TB', off
 export function GraphVisualization() {
     const { 
         activeNodeId, 
-        setActiveNodeId, 
-        graphRefreshTrigger, 
+        switchNode, 
+        nodesById,
         triggerGraphRefresh,
         triggerFolderRefresh,
         contextItems, 
@@ -175,21 +175,10 @@ export function GraphVisualization() {
     const [edges, setEdges, onEdgesChange] = useEdgesState([]);
     const [nodeToDelete, setNodeToDelete] = useState<{ id: string, parentId: string | null } | null>(null);
 
-    // Helper to find root from active node
-    const findRoot = async (nodeId: string) => {
-        const res = await fetch(`/api/graph/${nodeId}?direction=ancestors`);
-        if (res.ok) {
-            const ancestors = await res.json();
-            const root = ancestors.find((n: any) => !n.parentId);
-            return root ? root.id : nodeId;
-        }
-        return nodeId;
-    };
-
     // Action Handlers
     const handleBranch = useCallback((nodeId: string) => {
-        setActiveNodeId(nodeId);
-    }, [setActiveNodeId]);
+        switchNode(nodeId);
+    }, [switchNode]);
 
     const handleCutToNewChat = useCallback(async (nodeId: string) => {
         try {
@@ -226,10 +215,8 @@ export function GraphVisualization() {
             });
 
             if (res.ok) {
-                // If subtree delete, or if we deleted the active node itself, navigate to parent.
-                // If single delete of an ancestor, the active node (descendant) is preserved (reparented), so stay.
                 if (mode === 'subtree' || activeNodeId === nodeToDelete.id) {
-                    setActiveNodeId(nodeToDelete.parentId);
+                    switchNode(nodeToDelete.parentId);
                 }
                 
                 triggerGraphRefresh();
@@ -243,78 +230,61 @@ export function GraphVisualization() {
         }
     };
 
-    const fetchGraph = useCallback(async (currentNodeId: string | null) => {
+    const buildGraph = useCallback(async () => {
         let allNodes: Node[] = [];
         let allEdges: Edge[] = [];
         let currentYOffset = 0;
-        let activeGraphNodes: any[] = []; // Store raw node data from active graph
+        
+        // 1. Build Main Active Graph from Memory
+        const activeGraphNodes = Array.from(nodesById.values());
+        
+        if (activeGraphNodes.length > 0) {
+            const childrenCounts = getChildrenCounts(nodesById);
+            
+            const flowNodes: Node[] = activeGraphNodes.map((n: any) => ({
+                id: n.id,
+                type: 'custom',
+                position: { x: 0, y: 0 },
+                data: {
+                    label: n.summary || (n.userPrompt ? `User: ${n.userPrompt}` : `AI: ${n.aiResponse || '...'}`),
+                    isActive: n.id === activeNodeId,
+                    references: n.references,
+                    parentId: n.parentId,
+                    childrenCount: childrenCounts.get(n.id) || 0,
+                    isContext: contextItems.some(i => i.id === n.id),
+                    onBranch: handleBranch,
+                    onToggleContext: toggleContextItem,
+                    onCut: handleCutToNewChat,
+                    onDelete: handleDeleteClick
+                },
+            }));
 
-        // 1. Fetch Main Active Graph
-        if (currentNodeId) {
-            const root = await findRoot(currentNodeId);
-            const res = await fetch(`/api/graph/${root}`);
-            if (res.ok) {
-                const treeData = await res.json();
-                activeGraphNodes = treeData;
-
-                // Calculate children counts
-                const childrenCounts = new Map<string, number>();
-                treeData.forEach((n: any) => {
-                    if (n.parentId) {
-                        childrenCounts.set(n.parentId, (childrenCounts.get(n.parentId) || 0) + 1);
-                    }
-                });
-                
-                const flowNodes: Node[] = treeData.map((n: any) => ({
-                    id: n.id,
-                    type: 'custom',
-                    position: { x: 0, y: 0 },
-                    data: {
-                        label: n.summary || (n.userPrompt ? `User: ${n.userPrompt}` : `AI: ${n.aiResponse || '...'}`),
-                        isActive: n.id === currentNodeId,
-                        references: n.references, // Pass references to data
-                        parentId: n.parentId, // Needed for actions
-                        childrenCount: childrenCounts.get(n.id) || 0,
-                        isContext: contextItems.some(i => i.id === n.id),
-                        onBranch: handleBranch,
-                        onToggleContext: toggleContextItem,
-                        onCut: handleCutToNewChat,
-                        onDelete: handleDeleteClick
-                    },
+            const flowEdges: Edge[] = activeGraphNodes
+                .filter((n: any) => n.parentId)
+                .map((n: any) => ({
+                    id: `${n.parentId}-${n.id}`,
+                    source: n.parentId,
+                    target: n.id,
+                    type: 'smoothstep',
+                    markerEnd: { type: MarkerType.ArrowClosed },
                 }));
 
-                const flowEdges: Edge[] = treeData
-                    .filter((n: any) => n.parentId)
-                    .map((n: any) => ({
-                        id: `${n.parentId}-${n.id}`,
-                        source: n.parentId,
-                        target: n.id,
-                        type: 'smoothstep',
-                        markerEnd: { type: MarkerType.ArrowClosed },
-                    }));
-
-                const layouted = getLayoutedElements(flowNodes, flowEdges, 'TB', { x: 0, y: 0 });
-                allNodes = [...allNodes, ...layouted.nodes];
-                allEdges = [...allEdges, ...layouted.edges];
-                
-                if (layouted.bounds.height > 0) {
-                    currentYOffset += layouted.bounds.height + 100; // Spacing
-                }
+            const layouted = getLayoutedElements(flowNodes, flowEdges, 'TB', { x: 0, y: 0 });
+            allNodes = [...allNodes, ...layouted.nodes];
+            allEdges = [...allEdges, ...layouted.edges];
+            
+            if (layouted.bounds.height > 0) {
+                currentYOffset += layouted.bounds.height + 100; // Spacing
             }
         }
 
-        // 2. Resolve Referenced Nodes from THREE sources:
-        //    a) Currently selected context items (UI) - show full trees for folders
-        //    b) References stored in the active node (DB) - show only specific nodes
-        //    c) References stored in any ancestor node in the active graph (DB) - show only specific nodes
+        // 2. Resolve Referenced Nodes
         const contextRoots = new Set<string>(); // Full trees from folder context
         const referencedNodeIds = new Set<string>(); // Individual nodes from references
         const referenceEdges: Array<{ sourceId: string, targetId: string }> = []; // Track reference edges
 
-        // Helper to process references
         const addReference = async (refId: string, type: string, sourceNodeId?: string) => {
             if (type === 'folder') {
-                // For folders from UI context, show full trees
                 try {
                     const res = await fetch(`/api/nodes?folderId=${refId}&recursive=true`);
                     if (res.ok) {
@@ -327,23 +297,20 @@ export function GraphVisualization() {
                     }
                 } catch (e) {}
             } else {
-                // For node references, only show the specific node (not the entire tree)
-                // Check if this node is in the active graph already
-                const isInActiveGraph = activeGraphNodes.some((n: any) => n.id === refId);
+                const isInActiveGraph = nodesById.has(refId);
                 if (!isInActiveGraph) {
                     referencedNodeIds.add(refId);
                 }
-                // Track the reference edge
                 if (sourceNodeId) {
                     referenceEdges.push({ sourceId: sourceNodeId, targetId: refId });
                 }
             }
         };
 
-        // a) UI Context Items (show full trees for folders)
-        await Promise.all(contextItems.map(item => addReference(item.id, item.type, currentNodeId || undefined)));
+        // a) UI Context Items
+        await Promise.all(contextItems.map(item => addReference(item.id, item.type, activeNodeId || undefined)));
 
-        // b) & c) References in Active Graph History (show only specific nodes)
+        // b) & c) References in Active Graph History
         await Promise.all(activeGraphNodes.map(async (node) => {
             if (node.references && Array.isArray(node.references)) {
                 await Promise.all(node.references.map((ref: any) => 
@@ -352,9 +319,7 @@ export function GraphVisualization() {
             }
         }));
 
-        let contextIndex = 0;
-        
-        // Fetch and layout full context trees (from folders)
+        // Fetch and layout full context trees
         const contextGraphPromises = Array.from(contextRoots).map(async (rootId) => {
              try {
                  const res = await fetch(`/api/graph/${rootId}`);
@@ -369,7 +334,6 @@ export function GraphVisualization() {
 
         const contextResults = await Promise.all(contextGraphPromises);
 
-        // Layout each context graph (full trees)
         for (const result of contextResults) {
             if (!result) continue;
             const { rootId, treeData } = result;
@@ -404,16 +368,14 @@ export function GraphVisualization() {
             if (layouted.bounds.height > 0) {
                     currentYOffset += layouted.bounds.height + 50;
             }
-            contextIndex++;
         }
 
-        // Fetch and add individual referenced nodes (not their full trees)
+        // Fetch and add individual referenced nodes
         const referencedNodesPromises = Array.from(referencedNodeIds).map(async (nodeId) => {
             try {
                 const res = await fetch(`/api/graph/${nodeId}`);
                 if (res.ok) {
                     const treeData = await res.json();
-                    // Find just the specific node in the response
                     return treeData.find((n: any) => n.id === nodeId);
                 }
             } catch (e) {
@@ -424,12 +386,10 @@ export function GraphVisualization() {
 
         const referencedNodesData = await Promise.all(referencedNodesPromises);
 
-        // Add individual referenced nodes to the graph
         referencedNodesData.forEach((nodeData, index) => {
             if (!nodeData) return;
             
-            // Position referenced nodes in a row below context trees
-            const xPosition = index * 250; // Spacing between nodes
+            const xPosition = index * 250;
             
             allNodes.push({
                 id: nodeData.id,
@@ -444,12 +404,10 @@ export function GraphVisualization() {
         });
         
         if (referencedNodeIds.size > 0) {
-            currentYOffset += 100; // Add spacing after referenced nodes
+            currentYOffset += 100;
         }
 
-        // Draw all reference edges
         referenceEdges.forEach(({ sourceId, targetId }) => {
-            // Verify both source and target exist in the graph
             const sourceExists = allNodes.find(n => n.id === sourceId);
             const targetExists = allNodes.find(n => n.id === targetId);
             
@@ -469,39 +427,15 @@ export function GraphVisualization() {
         setNodes(allNodes);
         setEdges(allEdges);
 
-    }, [graphRefreshTrigger, contextItems, setNodes, setEdges, handleBranch, toggleContextItem, handleCutToNewChat, handleDeleteClick]);
+    }, [nodesById, activeNodeId, contextItems, handleBranch, toggleContextItem, handleCutToNewChat, handleDeleteClick, setNodes, setEdges]);
 
-    const prevTrigger = useRef(graphRefreshTrigger);
-
+    // Rebuild graph when dependencies change
     useEffect(() => {
-        const triggerChanged = prevTrigger.current !== graphRefreshTrigger;
-        prevTrigger.current = graphRefreshTrigger;
-
-        let shouldFetch = true;
-
-        // Optimization: If activeNodeId changed but is already in the graph, just update local state
-        // Only attempt fast path if trigger did NOT change
-        if (activeNodeId && !triggerChanged) {
-             const existingNode = nodes.find(n => n.id === activeNodeId);
-             if (existingNode) {
-                 setNodes(prev => prev.map(n => ({
-                     ...n,
-                     data: {
-                         ...n.data,
-                         isActive: n.id === activeNodeId
-                     }
-                 })));
-                 shouldFetch = false;
-             }
-        }
-        
-        if (shouldFetch) {
-            fetchGraph(activeNodeId);
-        }
-    }, [fetchGraph, activeNodeId, graphRefreshTrigger]);
+        buildGraph();
+    }, [buildGraph]);
 
     const onNodeClick = (_: React.MouseEvent, node: Node) => {
-        setActiveNodeId(node.id);
+        switchNode(node.id);
     };
 
     if (!activeNodeId && contextItems.length === 0) {

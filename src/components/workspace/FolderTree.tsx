@@ -34,12 +34,21 @@ import {
     useSensors,
     PointerSensor,
 } from '@dnd-kit/core';
+import { getRoot } from '@/lib/treeUtils';
 
 export function FolderTree() {
     const [folders, setFolders] = useState<Folder[]>([]);
     const [chats, setChats] = useState<Map<string, Node[]>>(new Map());
     const [loading, setLoading] = useState(true);
-    const { activeNodeId, setActiveFolderId, setActiveNodeId, folderRefreshTrigger, graphRefreshTrigger, triggerFolderRefresh } = useWorkspace();
+    const { 
+        activeNodeId, 
+        setActiveFolderId, 
+        switchNode, 
+        nodesById,
+        folderRefreshTrigger, 
+        graphRefreshTrigger, 
+        triggerFolderRefresh 
+    } = useWorkspace();
     const [activeDragItem, setActiveDragItem] = useState<{ type: 'FOLDER' | 'CHAT', id: string, name: string } | null>(null);
     const [activeRootId, setActiveRootId] = useState<string | null>(null);
 
@@ -57,7 +66,16 @@ export function FolderTree() {
             return;
         }
 
-        // Check if activeNodeId is a known root
+        // Try to find root from loaded tree in memory
+        if (nodesById.has(activeNodeId)) {
+            const root = getRoot(nodesById, activeNodeId);
+            if (root) {
+                setActiveRootId(root.id);
+                return;
+            }
+        }
+
+        // If not in memory, check if activeNodeId matches a known root in the sidebar list
         let isKnownRoot = false;
         for (const [_, nodes] of chats) {
             if (nodes.some(n => n.id === activeNodeId)) {
@@ -69,24 +87,11 @@ export function FolderTree() {
 
         if (isKnownRoot) return;
 
-        // If not a known root, fetch ancestry to find the root
-        const findRoot = async () => {
-            try {
-                const res = await fetch(`/api/graph/${activeNodeId}?direction=ancestors`);
-                if (res.ok) {
-                    const ancestors = await res.json();
-                    const root = ancestors.find((n: any) => !n.parentId);
-                    if (root) {
-                        setActiveRootId(root.id);
-                    }
-                }
-            } catch (error) {
-                console.error('Failed to find root for highlighting', error);
-            }
-        };
-
-        findRoot();
-    }, [activeNodeId, chats]);
+        // If still not found (e.g. deep linking to unloaded tree), fetching might be needed,
+        // but switchNode handles loading the tree, so nodesById should populate soon.
+        // We can skip the manual fetch here and rely on context updates.
+        
+    }, [activeNodeId, chats, nodesById]);
 
     useEffect(() => {
         fetchData();
@@ -144,7 +149,7 @@ export function FolderTree() {
     };
 
     const handleSelectChat = (nodeId: string) => {
-        setActiveNodeId(nodeId);
+        switchNode(nodeId);
     };
 
     const handleDragStart = (event: DragStartEvent) => {
@@ -278,7 +283,7 @@ function FolderItem({
     onSelectChat: (id: string) => void,
     activeRootId: string | null
 }) {
-    const { setActiveFolderId, setActiveNodeId, triggerFolderRefresh, activeNodeId, contextItems, toggleContextItem } = useWorkspace();
+    const { setActiveFolderId, switchNode, triggerFolderRefresh, activeNodeId, contextItems, toggleContextItem, nodesById } = useWorkspace();
     const [isOpen, setIsOpen] = useState(false);
     
     // Check if folder is in context
@@ -384,7 +389,7 @@ function FolderItem({
                 
                 // If the deleted folder contained the active chat, reset it
                 if (isActiveChatInFolder) {
-                    setActiveNodeId(null);
+                    switchNode(null);
                 }
                 
                 // If this was the active folder for creation, reset it
@@ -399,7 +404,7 @@ function FolderItem({
 
     const handleNewChat = () => {
         setActiveFolderId(folder.id);
-        setActiveNodeId(null);
+        switchNode(null);
         setIsOpen(true);
     };
 
@@ -555,7 +560,7 @@ function FolderItem({
 }
 
 function DraggableChatItem({ node, onSelect, activeRootId }: { node: Node, onSelect: (id: string) => void, activeRootId: string | null }) {
-    const { activeNodeId, triggerFolderRefresh, setActiveNodeId, contextItems, toggleContextItem } = useWorkspace();
+    const { activeNodeId, triggerFolderRefresh, switchNode, contextItems, toggleContextItem } = useWorkspace();
     const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
         id: node.id,
         data: { type: 'CHAT', id: node.id, name: node.summary || node.userPrompt, folderId: node.folderId }
@@ -598,7 +603,7 @@ function DraggableChatItem({ node, onSelect, activeRootId }: { node: Node, onSel
             if (res.ok) {
                 setIsDeleteOpen(false);
                 if (activeNodeId === node.id) {
-                    setActiveNodeId(null);
+                    switchNode(null);
                 }
                 triggerFolderRefresh();
             }
