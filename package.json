@@ -6,6 +6,7 @@
     "predev": "node scripts/init-db.js",
     "dev": "next dev",
     "db:reset": "node scripts/prisma-safe.js migrate reset --force",
+    "db:seed-models-prod": "node scripts/seed-models.js",
     "build": "next build",
     "postinstall": "prisma generate",
     "start": "next start",

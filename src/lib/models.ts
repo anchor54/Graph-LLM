@@ -13,8 +13,14 @@ export interface ModelInfo {
  * Detect provider based on model name
  */
 export function detectProvider(modelName: string): ModelProvider {
-    // OpenAI models start with 'gpt-' or 'o1-' or are just 'o1'
-    if (modelName.startsWith('gpt-') || modelName.startsWith('o1-') || modelName === 'o1') {
+    // OpenAI models commonly start with 'gpt-' (including fine-tunes like 'ft:gpt-...')
+    // or with reasoning families like 'o1', 'o3-mini', etc.
+    if (
+        modelName.startsWith('gpt-') ||
+        modelName.startsWith('ft:gpt-') ||
+        /^o\d/.test(modelName) ||
+        modelName.startsWith('ft:o')
+    ) {
         return 'openai';
     }
     // Everything else is assumed to be Gemini

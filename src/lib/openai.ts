@@ -9,6 +9,25 @@ const getClient = (apiKey?: string): OpenAI | null => {
     return new OpenAI({ apiKey: key });
 };
 
+const isReasoningModel = (modelName: string): boolean => /^o\d/.test(modelName) || modelName.startsWith('ft:o');
+
+const prettyModelName = (id: string): string => {
+    if (id.startsWith('ft:')) {
+        return id;
+    }
+    const parts = id.split('-');
+    const mapped = parts.map((part, idx) => {
+        const lower = part.toLowerCase();
+        if (idx === 0 && lower === 'gpt') return 'GPT';
+        if (idx === 0 && /^o\d/.test(lower)) return lower.toUpperCase(); // o1, o3, etc.
+        if (lower === 'mini') return 'Mini';
+        if (lower === 'nano') return 'Nano';
+        // Preserve things like 5.2 / 4.1 / 4o as-is except leading char casing for words
+        return part.length ? part[0].toUpperCase() + part.slice(1) : part;
+    });
+    return mapped.join(' ');
+};
+
 export async function getOpenAIModels(apiKey?: string) {
     const client = getClient(apiKey);
     if (!client) {
@@ -17,15 +36,31 @@ export async function getOpenAIModels(apiKey?: string) {
     }
 
     try {
-        // OpenAI doesn't have a direct list endpoint for chat models, so return common models
+        // Prefer dynamic listing so newly released models show up automatically (for admin tooling).
+        const list = await client.models.list();
+        const ids = list.data
+            .map(m => m.id)
+            .filter(id => id.startsWith('gpt-') || id.startsWith('ft:gpt-') || /^o\d/.test(id) || id.startsWith('ft:o'));
+
+        // De-dupe + stable ordering
+        const unique = Array.from(new Set(ids)).sort((a, b) => a.localeCompare(b));
+
+        if (unique.length > 0) {
+            return unique.map(id => ({ name: id, displayName: prettyModelName(id) }));
+        }
+
+        // Fallback to common models if list is empty for some reason
         return [
-            { name: 'gpt-4o', displayName: 'GPT-4o' },
-            { name: 'gpt-4o-mini', displayName: 'GPT-4o Mini' },
-            { name: 'gpt-4-turbo', displayName: 'GPT-4 Turbo' },
-            { name: 'gpt-4', displayName: 'GPT-4' },
-            { name: 'gpt-3.5-turbo', displayName: 'GPT-3.5 Turbo' },
-            { name: 'o1', displayName: 'O1' },
-            { name: 'o1-mini', displayName: 'O1 Mini' },
+            { name: 'gpt-4o', displayName: 'GPT 4o' },
+            { name: 'gpt-4o-mini', displayName: 'GPT 4o Mini' },
+            { name: 'gpt-5', displayName: 'GPT 5' },
+            { name: 'gpt-5.2', displayName: 'GPT 5.2' },
+            { name: 'gpt-5-mini', displayName: 'GPT 5 Mini' },
+            { name: 'gpt-5-nano', displayName: 'GPT 5 Nano' },
+            { name: 'gpt-4.1', displayName: 'GPT 4.1' },
+            { name: 'gpt-4.1-mini', displayName: 'GPT 4.1 Mini' },
+            { name: 'gpt-4.1-nano', displayName: 'GPT 4.1 Nano' },
+            { name: 'o3-mini', displayName: 'O3 Mini' },
         ];
     } catch (error) {
         console.error('Error fetching OpenAI models:', error);
@@ -46,32 +81,47 @@ export async function* streamOpenAIResponse(
     }
 
     try {
-        // Build messages array with context
+        // Reasoning-family models (o*) are best supported via the Responses API.
+        if (isReasoningModel(modelName)) {
+            const stream = await client.responses.create({
+                model: modelName,
+                input: prompt,
+                ...(context ? { instructions: `Previous Conversation Summary:\n${context}` } : {}),
+                stream: true,
+            });
+
+            for await (const event of stream) {
+                if (event.type === 'response.output_text.delta') {
+                    yield event.delta;
+                }
+            }
+            return;
+        }
+
+        // Default: chat completions for GPT-family chat models.
         const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
-        
+
         if (context) {
             messages.push({
                 role: 'system',
-                content: `Previous Conversation Summary:\n${context}`
+                content: `Previous Conversation Summary:\n${context}`,
             });
         }
-        
+
         messages.push({
             role: 'user',
-            content: prompt
+            content: prompt,
         });
 
         const stream = await client.chat.completions.create({
             model: modelName,
-            messages: messages,
+            messages,
             stream: true,
         });
 
         for await (const chunk of stream) {
             const content = chunk.choices[0]?.delta?.content;
-            if (content) {
-                yield content;
-            }
+            if (content) yield content;
         }
     } catch (error) {
         console.error('Error calling OpenAI API:', error);
@@ -91,6 +141,16 @@ export async function generateOpenAIResponse(
     }
 
     try {
+        if (isReasoningModel(modelName)) {
+            const response = await client.responses.create({
+                model: modelName,
+                input: prompt,
+                ...(context ? { instructions: `Previous Conversation Summary:\n${context}` } : {}),
+            });
+
+            return response.output_text || "No response generated.";
+        }
+
         const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
         
         if (context) {
@@ -143,6 +203,7 @@ export async function generateNodeTitle(
         Topic label:
         `;
 
+        // Keep title generation on the default GPT model (cheap + fast).
         const response = await client.chat.completions.create({
             model: DEFAULT_OPENAI_MODEL,
             messages: [{ role: 'user', content: prompt }],
