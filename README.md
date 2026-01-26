@@ -30,10 +30,22 @@ Before you begin, ensure you have the following:
 - Node.js (v18+ recommended)
 - A Google Cloud project with Gemini API access
 - A Supabase account (or any PostgreSQL database)
+- [Supabase CLI](https://supabase.com/docs/guides/cli) installed (for local development)
 
 ## Environment Variables
 
-Create a `.env` file in the root directory and add the following variables:
+### Local Development
+
+1.  Copy `.env.example` to `.env.development.local`.
+    ```bash
+    cp .env.example .env.development.local
+    ```
+2.  Start local Supabase (see "Setting up Local Supabase" below).
+3.  Update `.env.development.local` with the values from `supabase status` output.
+
+### Production
+
+Create a `.env` file (or set deployment variables) with the production values:
 
 ```env
 # Database connection string (e.g. from Supabase Transaction Pooler)
@@ -42,6 +54,21 @@ DATABASE_URL="postgresql://user:password@host:port/database"
 # Google Gemini API Key
 GEMINI_API_KEY="your-gemini-api-key"
 ```
+
+## Setting up Local Supabase
+
+1.  Initialize Supabase (if not already done):
+    ```bash
+    npx supabase init
+    ```
+
+2.  Start Supabase services:
+    ```bash
+    npx supabase start
+    ```
+
+3.  Get credentials:
+    After `start` completes, you will see the API URL, Anon Key, and DB URL. Update your `.env.development.local` file with these values.
 
 ## Getting Started
 
