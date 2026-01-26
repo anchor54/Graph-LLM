@@ -1,4 +1,22 @@
-require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
+const dotenv = require('dotenv');
+
+// Load environment variables with precedence
+const envFile = process.env.PRISMA_ENV_FILE;
+if (envFile && fs.existsSync(envFile)) {
+    console.log(`Loading env from PRISMA_ENV_FILE: ${envFile}`);
+    dotenv.config({ path: envFile });
+} else {
+    const devLocal = path.join(process.cwd(), ".env.development.local");
+    if (fs.existsSync(devLocal)) {
+        console.log(`Loading env from .env.development.local`);
+        dotenv.config({ path: devLocal });
+    } else {
+        dotenv.config();
+    }
+}
+
 const { PrismaClient } = require('@prisma/client');
 const { PrismaPg } = require('@prisma/adapter-pg');
 const { Pool } = require('pg');
