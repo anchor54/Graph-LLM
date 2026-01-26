@@ -3,56 +3,61 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
+  provider = "postgresql"
 }
 
 model User {
   id         String      @id
   email      String      @unique
   createdAt  DateTime    @default(now())
-  nodes      Node[]
   folders    Folder[]
+  nodes      Node[]
   userModels UserModel[]
 }
 
 model Node {
-  id            String   @id @default(uuid())
-  parentId      String?
-  parent        Node?    @relation("Tree", fields: [parentId], references: [id])
-  children      Node[]   @relation("Tree")
-  folderId      String?
-  folder        Folder?  @relation(fields: [folderId], references: [id], onDelete: Cascade)
-  userId        String
-  user          User     @relation(fields: [userId], references: [id])
-  summary       String?
-  userPrompt    String
-  aiResponse    String?
-  modelMetadata Json?
-  references    Json?    // Stores array of { id, type, name } used as context
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id             String   @id @default(uuid())
+  parentId       String?
+  folderId       String?
+  summary        String?
+  userPrompt     String
+  aiResponse     String?
+  modelMetadata  Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  userId         String
+  references     Json?
+  classification String?
+  collapsed      Boolean  @default(false)
+  isLowSignal    Boolean  @default(false)
+  topics         Json?
+  previewBullets Json?    // Array of strings (max 3) - Added for Part 1
+  folder         Folder?  @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  parent         Node?    @relation("Tree", fields: [parentId], references: [id])
+  children       Node[]   @relation("Tree")
+  user           User     @relation(fields: [userId], references: [id])
 }
 
 model Folder {
   id        String   @id @default(uuid())
   name      String
   parentId  String?
-  parent    Folder?  @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
-  children  Folder[] @relation("FolderTree")
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  nodes     Node[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  userId    String
+  parent    Folder?  @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children  Folder[] @relation("FolderTree")
+  user      User     @relation(fields: [userId], references: [id])
+  nodes     Node[]
 }
 
 model Model {
   id          String      @id @default(uuid())
-  provider    String      // 'gemini' or 'openai'
-  name        String      // e.g., 'gpt-4o', 'gemini-2.5-flash'
+  provider    String
+  name        String
   displayName String
   enabled     Boolean     @default(true)
-  isGlobal    Boolean     @default(true) // Global model available to all
+  isGlobal    Boolean     @default(true)
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   userModels  UserModel[]
@@ -64,12 +69,12 @@ model Model {
 model UserModel {
   id        String   @id @default(uuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
   modelId   String
-  model     Model    @relation(fields: [modelId], references: [id], onDelete: Cascade)
-  enabled   Boolean  @default(true) // User-specific override
+  enabled   Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  model     Model    @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id])
 
   @@unique([userId, modelId])
   @@index([userId])

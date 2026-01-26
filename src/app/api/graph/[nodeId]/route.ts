@@ -41,13 +41,13 @@ export async function GET(
                 // We can do this in a single complex query.
                 query = prisma.$queryRaw`
                     WITH RECURSIVE "Ancestors" AS (
-                        SELECT "id", "parentId", "folderId", "summary", "userPrompt", "aiResponse", "modelMetadata", "createdAt", "updatedAt", "references"
+                        SELECT "id", "parentId", "folderId", "summary", "userPrompt", "aiResponse", "modelMetadata", "createdAt", "updatedAt", "references", "topics", "classification", "previewBullets", "collapsed", "isLowSignal"
                         FROM "Node"
                         WHERE "id" = ${nodeId} AND "userId" = ${user.id}
                         
                         UNION ALL
                         
-                        SELECT p."id", p."parentId", p."folderId", p."summary", p."userPrompt", p."aiResponse", p."modelMetadata", p."createdAt", p."updatedAt", p."references"
+                        SELECT p."id", p."parentId", p."folderId", p."summary", p."userPrompt", p."aiResponse", p."modelMetadata", p."createdAt", p."updatedAt", p."references", p."topics", p."classification", p."previewBullets", p."collapsed", p."isLowSignal"
                         FROM "Node" p
                         JOIN "Ancestors" c ON c."parentId" = p."id"
                         WHERE p."userId" = ${user.id}
@@ -59,13 +59,13 @@ export async function GET(
             } else {
                 query = prisma.$queryRaw`
                     WITH RECURSIVE "Ancestors" AS (
-                        SELECT "id", "parentId", "folderId", "summary", "userPrompt", "aiResponse", "modelMetadata", "createdAt", "updatedAt", "references"
+                        SELECT "id", "parentId", "folderId", "summary", "userPrompt", "aiResponse", "modelMetadata", "createdAt", "updatedAt", "references", "topics", "classification", "previewBullets", "collapsed", "isLowSignal"
                         FROM "Node"
                         WHERE "id" = ${nodeId} AND "userId" = ${user.id}
                         
                         UNION ALL
                         
-                        SELECT p."id", p."parentId", p."folderId", p."summary", p."userPrompt", p."aiResponse", p."modelMetadata", p."createdAt", p."updatedAt", p."references"
+                        SELECT p."id", p."parentId", p."folderId", p."summary", p."userPrompt", p."aiResponse", p."modelMetadata", p."createdAt", p."updatedAt", p."references", p."topics", p."classification", p."previewBullets", p."collapsed", p."isLowSignal"
                         FROM "Node" p
                         JOIN "Ancestors" c ON c."parentId" = p."id"
                         WHERE p."userId" = ${user.id}
@@ -77,13 +77,13 @@ export async function GET(
             // Default: descendants
             query = prisma.$queryRaw`
                 WITH RECURSIVE "Tree" AS (
-                    SELECT "id", "parentId", "folderId", "summary", "userPrompt", "aiResponse", "modelMetadata", "createdAt", "updatedAt", "references"
+                    SELECT "id", "parentId", "folderId", "summary", "userPrompt", "aiResponse", "modelMetadata", "createdAt", "updatedAt", "references", "topics", "classification", "previewBullets", "collapsed", "isLowSignal"
                     FROM "Node"
                     WHERE "id" = ${nodeId} AND "userId" = ${user.id}
                     
                     UNION ALL
                     
-                    SELECT c."id", c."parentId", c."folderId", c."summary", c."userPrompt", c."aiResponse", c."modelMetadata", c."createdAt", c."updatedAt", c."references"
+                    SELECT c."id", c."parentId", c."folderId", c."summary", c."userPrompt", c."aiResponse", c."modelMetadata", c."createdAt", c."updatedAt", c."references", c."topics", c."classification", c."previewBullets", c."collapsed", c."isLowSignal"
                     FROM "Node" c
                     JOIN "Tree" p ON c."parentId" = p."id"
                     WHERE c."userId" = ${user.id}

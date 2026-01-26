@@ -23,8 +23,8 @@ if (envFile && fs.existsSync(envFile)) {
 if (process.env.RESET_DB === 'true') {
   console.log('RESET_DB is set to true. Resetting database...');
   try {
-    // Run the prisma migrate reset command
-    execSync('npx prisma migrate reset --force', { stdio: 'inherit' });
+    // Run the prisma migrate reset command (guarded against remote DBs)
+    execSync('node scripts/prisma-safe.js migrate reset --force', { stdio: 'inherit' });
     console.log('Database reset successfully.');
   } catch (error) {
     console.error('Failed to reset database.');

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useWorkspace } from '@/context/WorkspaceContext';
 import { Node, ContextItem } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Send, User, Bot, Loader2, GitBranch, Quote, MoreHorizontal, Scissors, Plus, Trash2, BookmarkCheck, X, Bookmark } from 'lucide-react';
+import { Send, User, Bot, Loader2, GitBranch, Quote, MoreHorizontal, Scissors, Plus, Trash2, BookmarkCheck, X, Bookmark, Copy, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -88,8 +88,38 @@ export function ChatInterface() {
     const [activeCitations, setActiveCitations] = useState<Citation[]>([]);
     const [mounted, setMounted] = useState(false);
     const [nodeToDelete, setNodeToDelete] = useState<{ id: string, parentId: string | null } | null>(null);
+    const [copied, setCopied] = useState<{ id: string; source: 'user' | 'ai' } | null>(null);
+    const copyResetTimerRef = useRef<number | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+    const copyToClipboard = async (text: string, id: string, source: 'user' | 'ai') => {
+        const value = (text ?? '').toString();
+        if (!value.trim()) return;
+
+        try {
+            if (navigator?.clipboard?.writeText) {
+                await navigator.clipboard.writeText(value);
+            } else {
+                // Fallback for older browsers / permissions issues
+                const el = document.createElement('textarea');
+                el.value = value;
+                el.setAttribute('readonly', '');
+                el.style.position = 'fixed';
+                el.style.left = '-9999px';
+                document.body.appendChild(el);
+                el.select();
+                document.execCommand('copy');
+                document.body.removeChild(el);
+            }
+
+            setCopied({ id, source });
+            if (copyResetTimerRef.current) window.clearTimeout(copyResetTimerRef.current);
+            copyResetTimerRef.current = window.setTimeout(() => setCopied(null), 1200);
+        } catch (e) {
+            console.error('Failed to copy to clipboard', e);
+        }
+    };
 
     // Compute messages from context
     const messages = useMemo(() => {
@@ -103,6 +133,12 @@ export function ChatInterface() {
 
     useEffect(() => {
         setMounted(true);
+    }, []);
+
+    useEffect(() => {
+        return () => {
+            if (copyResetTimerRef.current) window.clearTimeout(copyResetTimerRef.current);
+        };
     }, []);
 
     // Auto-resize textarea
@@ -375,7 +411,7 @@ export function ChatInterface() {
                         return (
                             <div key={node.id} className="space-y-4 group">
                             {/* User Message */}
-                            <div className="flex flex-col items-end gap-1" data-message-id={node.id} data-message-source="user">
+                            <div className="flex flex-col items-end gap-1 group/user" data-message-id={node.id} data-message-source="user">
                                 {(node as any).citations && (node as any).citations.length > 0 && (
                                     <div className="mb-1 text-right">
                                         {(node as any).citations.map((c: any, i: number) => (
@@ -410,6 +446,33 @@ export function ChatInterface() {
                                         </ReactMarkdown>
                                     </div>
                                 </div>
+                                <div className="flex items-center justify-end w-full max-w-[80%] opacity-0 group-hover/user:opacity-100 transition-opacity">
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className={cn(
+                                            "h-7 px-2 text-xs gap-1.5",
+                                            copied?.id === node.id && copied?.source === 'user'
+                                                ? "text-green-600 hover:text-green-700"
+                                                : "text-muted-foreground hover:text-foreground"
+                                        )}
+                                        onClick={() => copyToClipboard(node.userPrompt || '', node.id, 'user')}
+                                        title="Copy"
+                                        aria-label="Copy"
+                                    >
+                                        {copied?.id === node.id && copied?.source === 'user' ? (
+                                            <>
+                                                <Check size={14} className="text-green-600" />
+                                                Copied
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Copy size={14} />
+                                                Copy
+                                            </>
+                                        )}
+                                    </Button>
+                                </div>
                             </div>
 
                             {/* AI Response */}
@@ -443,6 +506,30 @@ export function ChatInterface() {
                                         )}
                                         {!node.id.startsWith('temp-') && !isGenerating && (
                                             <div className="flex items-center gap-2 mt-2 opacity-0 group-hover/ai:opacity-100 transition-opacity">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className={cn(
+                                                        "h-7 px-2 text-xs gap-1.5",
+                                                        copied?.id === node.id && copied?.source === 'ai'
+                                                            ? "text-green-600 hover:text-green-700"
+                                                            : "text-muted-foreground hover:text-foreground"
+                                                    )}
+                                                    onClick={() => copyToClipboard(node.aiResponse || '', node.id, 'ai')}
+                                                    title="Copy"
+                                                >
+                                                    {copied?.id === node.id && copied?.source === 'ai' ? (
+                                                        <>
+                                                            <Check size={14} className="text-green-600" />
+                                                            Copied
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <Copy size={14} />
+                                                            Copy
+                                                        </>
+                                                    )}
+                                                </Button>
                                                 {childCount > 0 && (
                                                     <Button 
                                                         variant="ghost" 

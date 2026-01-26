@@ -17,6 +17,14 @@ export interface Node {
     modelMetadata: any;
     citations?: any[];
     references?: ContextItem[]; // Array of referenced context items
+    
+    // Part 1: Display Metadata
+    topics?: string[];
+    classification?: string; // decision | insight | open_question | risk | follow_up
+    previewBullets?: string[];
+    collapsed?: boolean;
+    isLowSignal?: boolean;
+    
     createdAt: string;
     updatedAt: string;
 }
