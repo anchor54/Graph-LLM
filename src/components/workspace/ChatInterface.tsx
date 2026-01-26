@@ -65,6 +65,12 @@ const CodeBlock = ({ inline, className, children, isDark }: any) => {
     );
 };
 
+type StreamChunk = {
+    key: string;
+    text: string;
+    animate: boolean;
+};
+
 export function ChatInterface() {
     const router = useRouter();
     const { 
@@ -92,6 +98,10 @@ export function ChatInterface() {
     const copyResetTimerRef = useRef<number | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+    // Streaming UI state: store deltas so only the *new* chunk fades in (instead of re-animating the whole message).
+    const [streamChunksByNodeId, setStreamChunksByNodeId] = useState<Record<string, StreamChunk[]>>({});
+    const streamProgressRef = useRef<{ nodeId: string | null; lastText: string }>({ nodeId: null, lastText: '' });
 
     const copyToClipboard = async (text: string, id: string, source: 'user' | 'ai') => {
         const value = (text ?? '').toString();
@@ -180,6 +190,50 @@ export function ChatInterface() {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }
     }, [messages, sending]); // Re-scroll when messages change or sending state changes
+
+    // When streaming, compute incremental deltas and keep them as separate chunks.
+    useEffect(() => {
+        if (!sending) {
+            // Reset progress (we keep chunks around; completed messages will render markdown normally).
+            streamProgressRef.current = { nodeId: null, lastText: '' };
+            return;
+        }
+
+        const last = messages.length > 0 ? messages[messages.length - 1] : null;
+        if (!last) return;
+
+        const id = last.id;
+        const newText = last.aiResponse || '';
+
+        // If the streaming target node changed (e.g. temp -> real ID swap), seed chunks with current text (no animation).
+        if (streamProgressRef.current.nodeId !== id) {
+            streamProgressRef.current = { nodeId: id, lastText: newText };
+            setStreamChunksByNodeId(prev => ({
+                ...prev,
+                [id]: newText
+                    ? [{ key: `${id}-seed`, text: newText, animate: false }]
+                    : [],
+            }));
+            return;
+        }
+
+        const prevText = streamProgressRef.current.lastText;
+        if (newText === prevText) return;
+
+        const delta = newText.startsWith(prevText) ? newText.slice(prevText.length) : newText;
+        streamProgressRef.current.lastText = newText;
+
+        if (!delta) return;
+        setStreamChunksByNodeId(prev => {
+            const existing = prev[id] || [];
+            const next: StreamChunk = {
+                key: `${id}-${Date.now()}-${existing.length}`,
+                text: delta,
+                animate: true,
+            };
+            return { ...prev, [id]: [...existing, next] };
+        });
+    }, [messages, sending]);
 
     const handleSend = async () => {
         if (!inputText.trim()) return;
@@ -492,16 +546,29 @@ export function ChatInterface() {
                                                 <div className="mb-2 text-xs text-muted-foreground font-semibold uppercase">
                                                     {node.modelMetadata?.model || 'AI'}
                                                 </div>
-                                                <div className="prose dark:prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-pre:my-2">
-                                                    <ReactMarkdown 
-                                                        remarkPlugins={[remarkGfm]}
-                                                        components={{
-                                                            code: (props) => <CodeBlock {...props} isDark={true} />
-                                                        }}
-                                                    >
-                                                        {node.aiResponse || ''}
-                                                    </ReactMarkdown>
-                                                </div>
+                                                {isGenerating ? (
+                                                    <div className="text-sm leading-6 whitespace-pre-wrap">
+                                                        {(streamChunksByNodeId[node.id] || []).map((c) => (
+                                                            <span
+                                                                key={c.key}
+                                                                className={cn(c.animate ? 'animate-in fade-in duration-200' : '')}
+                                                            >
+                                                                {c.text}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                ) : (
+                                                    <div className="prose dark:prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-pre:my-2">
+                                                        <ReactMarkdown 
+                                                            remarkPlugins={[remarkGfm]}
+                                                            components={{
+                                                                code: (props) => <CodeBlock {...props} isDark={true} />
+                                                            }}
+                                                        >
+                                                            {node.aiResponse || ''}
+                                                        </ReactMarkdown>
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
                                         {!node.id.startsWith('temp-') && !isGenerating && (
