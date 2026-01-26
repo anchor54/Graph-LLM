@@ -17,7 +17,7 @@ export async function generateNodeDisplay(
     const provider = detectProvider(modelName);
     
     const systemPrompt = `
-    You are an expert conversation analyst. Your goal is to analyze the user-AI exchange and generate metadata for a "thinking graph" UI.
+    You are an expert conversation analyst. Your goal is to analyze the user-AI exchange and generate metadata about the conversation.
     
     Analyze the following exchange and output a JSON object with exactly these fields:
     
@@ -30,7 +30,9 @@ export async function generateNodeDisplay(
     3. "classification": One string from this list: "decision", "insight", "open_question", "risk", "follow_up". 
        - Default to "insight" if unsure.
        
-    4. "previewBullets": An array of up to 3 short strings (max 10 words each) summarizing key details/points.
+    4. "previewBullets": An array of up to 3 short strings (max 10 words each) that explain the "Why" and "Impact" of the outcome.
+       - Format: "Why: [Reason]" or "Impact: [Consequence]" or just the key point.
+       - Example: ["Why: Security risk", "Why: Poor UX", "Impact: Affects free tier"]
     
     Output JSON only. No markdown fencing.
     
@@ -43,9 +45,9 @@ export async function generateNodeDisplay(
     
     try {
         if (provider === 'openai') {
-            rawResponse = await generateOpenAIResponse(systemPrompt, modelName);
+            rawResponse = await generateOpenAIResponse(systemPrompt, modelName) || "{}";
         } else {
-            rawResponse = await generateGeminiResponse(systemPrompt, modelName);
+            rawResponse = await generateGeminiResponse(systemPrompt, modelName) || "{}";
         }
         
         // Cleanup response (remove markdown code blocks if present)

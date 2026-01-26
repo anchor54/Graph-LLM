@@ -68,14 +68,11 @@ const CustomNode = React.memo(({ data, id }: { data: any, id: string }) => {
     const isHovered = data.isHovered;
     const isActive = data.isActive;
     const isCollapsed = data.isCollapsed;
+
+    const showReference = isHovered && isActive && (isReference || (data.references && data.references.length > 0));
     
     // Clean label
     const cleanLabel = data.label.replace(/^(User:|AI:)\s*/, '');
-    
-    // Progressive Disclosure Levels
-    const showDetails = zoom > 0.5 || isHovered || isActive;
-    const showExtras = isHovered || isActive;
-    const showPreview = isActive;
 
     return (
         <div className={`group/node relative px-4 py-2 shadow-md rounded-md border-2 w-[220px] bg-card transition-all duration-200 ${
@@ -89,41 +86,46 @@ const CustomNode = React.memo(({ data, id }: { data: any, id: string }) => {
             
             {/* Header: Classification + Label */}
             <div className="flex items-start gap-2">
-                {(data.classification || showExtras) && (
+                {(data.classification) && (
                     <div className="mt-0.5 shrink-0" title={data.classification}>
                         <StateIcon type={data.classification} />
                     </div>
                 )}
-                <div className={`text-foreground font-medium leading-tight ${showPreview ? '' : 'line-clamp-2'} text-xs`}>
+                <div className={`text-foreground font-medium leading-tight ${isHovered ? '' : 'line-clamp-2'} text-xs`}>
                     {cleanLabel}
                 </div>
             </div>
 
-            {/* Topics (Badges) - Show on Hover/Active */}
-            {showExtras && data.topics && data.topics.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-2">
-                    {data.topics.map((t: string, i: number) => (
-                        <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-secondary text-secondary-foreground">
-                            {t}
-                        </span>
-                    ))}
-                </div>
-            )}
-
-            {/* Preview Bullets - Show only when Active */}
-            {showPreview && data.previewBullets && data.previewBullets.length > 0 && (
-                <div className="mt-2 space-y-1 border-t border-border/50 pt-2">
-                    {data.previewBullets.map((b: string, i: number) => (
-                        <div key={i} className="text-[10px] text-muted-foreground flex items-start gap-1">
-                            <span className="mt-1 block h-1 w-1 rounded-full bg-muted-foreground/50 shrink-0" />
-                            <span>{b}</span>
+            {/* Popover Side Box */}
+            {isHovered && ((data.topics?.length > 0) || (data.previewBullets?.length > 0)) && (
+                <div className="absolute left-[105%] top-[-2px] w-[200px] bg-popover text-popover-foreground p-3 rounded-md shadow-xl border border-border z-50 pointer-events-none animate-in fade-in zoom-in-95 duration-200">
+                    {/* Topics */}
+                    {data.topics && data.topics.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-2">
+                            {data.topics.map((t: string, i: number) => (
+                                <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-secondary text-secondary-foreground">
+                                    {t}
+                                </span>
+                            ))}
                         </div>
-                    ))}
+                    )}
+                    
+                    {/* Bullets */}
+                    {data.previewBullets && data.previewBullets.length > 0 && (
+                        <div className="space-y-1">
+                            {data.previewBullets.map((b: string, i: number) => (
+                                <div key={i} className="text-[10px] text-muted-foreground flex items-start gap-1">
+                                    <span className="mt-1 block h-1 w-1 rounded-full bg-muted-foreground/50 shrink-0" />
+                                    <span>{b}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
             
             {/* Reference Indicator */}
-            {(isReference || (data.references && data.references.length > 0)) && (showExtras) && (
+            {showReference && (
                 <div className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground italic">
                     <LinkIcon size={10} />
                     {isReference ? 'Referenced Node' : `${data.references.length} Refs`}
