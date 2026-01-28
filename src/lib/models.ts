@@ -1,5 +1,5 @@
-import { streamGeminiResponse, getModels as getGeminiModels } from './gemini';
-import { streamOpenAIResponse, getOpenAIModels } from './openai';
+import { streamGeminiResponse, generateGeminiResponse, getModels as getGeminiModels } from './gemini';
+import { streamOpenAIResponse, generateOpenAIResponse, getOpenAIModels } from './openai';
 
 export type ModelProvider = 'gemini' | 'openai';
 
@@ -55,6 +55,23 @@ export async function getAllModelsFromProviders(
     }
     
     return models;
+}
+
+/**
+ * Generate a complete response from the appropriate provider (non-streaming)
+ */
+export async function generateModelResponse(
+    prompt: string,
+    modelName: string,
+    context?: string
+): Promise<string> {
+    const provider = detectProvider(modelName);
+    
+    if (provider === 'openai') {
+        return await generateOpenAIResponse(prompt, modelName, context);
+    } else {
+        return await generateGeminiResponse(prompt, modelName, context);
+    }
 }
 
 /**

@@ -62,7 +62,7 @@ export async function generateGeminiResponse(
             model: modelName,
             contents: fullPrompt,
         });
-        return response.text;
+        return response.text || "No response generated.";
     } catch (error) {
         console.error('Error calling Gemini API:', error);
         return `Error calling Gemini API: ${error instanceof Error ? error.message : 'Unknown error'}`;
