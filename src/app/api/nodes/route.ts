@@ -4,6 +4,8 @@ import { generateNodeDisplay } from '@/lib/nodeDisplay';
 import { DEFAULT_MODEL } from '@/lib/gemini';
 import { streamModelResponse, detectProvider } from '@/lib/models';
 import { createClient } from '@/lib/supabase/server';
+import { MultiPassOrchestrator } from '@/lib/multiPass/orchestrator';
+import { MultiPassContext } from '@/lib/multiPass/types';
 
 // Helper to fetch ancestor chain
 async function getAncestorChain(nodeId: string, userId: string) {
@@ -180,11 +182,26 @@ export async function POST(request: Request) {
         });
 
         // 3. Setup Streaming Response
-        const stream = streamModelResponse(
-            userPrompt,
-            modelName,
-            promptContext || undefined
-        );
+        let stream;
+        let multiPassMetadata: any = null;
+
+        if (modelMetadata?.useMultiPass) {
+            const context: MultiPassContext = {
+                userPrompt,
+                modelName,
+                historyContext: promptContext || undefined
+            };
+            
+            stream = MultiPassOrchestrator.streamMultiPass(context, (meta) => {
+                multiPassMetadata = meta;
+            });
+        } else {
+            stream = streamModelResponse(
+                userPrompt,
+                modelName,
+                promptContext || undefined
+            );
+        }
         
         const encoder = new TextEncoder();
         
@@ -218,7 +235,11 @@ export async function POST(request: Request) {
                                 // @ts-ignore: TS stale in editor, fields exist in schema and generated client
                                 topics: displayData.topics,
                                 classification: displayData.classification,
-                                previewBullets: displayData.previewBullets
+                                previewBullets: displayData.previewBullets,
+                                modelMetadata: multiPassMetadata ? {
+                                    ...(node.modelMetadata as object ?? {}),
+                                    ...multiPassMetadata
+                                } : undefined
                             }
                         });
                     } catch (updateError: any) {
