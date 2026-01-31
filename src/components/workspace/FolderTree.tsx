@@ -105,10 +105,13 @@ export function FolderTree() {
             ]);
 
             if (foldersRes.ok && nodesRes.ok) {
-                const foldersData = await foldersRes.json();
+                const foldersData: Folder[] = await foldersRes.json();
                 const nodesData: Node[] = await nodesRes.json();
 
-                setFolders(buildFolderTree(foldersData));
+                const roots = buildFolderTree(foldersData);
+                // Sort roots by updatedAt desc
+                roots.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+                setFolders(roots);
 
                 // Group chats by folderId
                 const chatsMap = new Map<string, Node[]>();
@@ -117,6 +120,12 @@ export function FolderTree() {
                     if (!chatsMap.has(fid)) chatsMap.set(fid, []);
                     chatsMap.get(fid)!.push(node);
                 });
+                
+                // Sort chats in each bucket
+                for (const [_, list] of chatsMap) {
+                    list.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+                }
+                
                 setChats(chatsMap);
             }
         } catch (error) {
@@ -142,6 +151,13 @@ export function FolderTree() {
                 map.get(f.parentId)!.children!.push(node);
             } else {
                 roots.push(node);
+            }
+        });
+        
+        // Sort children
+        map.forEach(node => {
+            if (node.children) {
+                node.children.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
             }
         });
 
@@ -209,23 +225,38 @@ export function FolderTree() {
 
     return (
         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-            <div className="space-y-1 min-h-[100px] relative">
+            <div className="space-y-4 min-h-[100px] relative">
                  {/* Root Droppable Area - covers the whole area but sits behind */}
                  <RootDroppable>
-                    {/* Root level chats */}
-                    {chats.get('root')?.map(chat => (
-                        <DraggableChatItem key={chat.id} node={chat} onSelect={handleSelectChat} activeRootId={activeRootId} />
-                    ))}
+                    
+                    {/* Folders Section */}
+                    {folders.length > 0 && (
+                        <div className="mb-4">
+                            <h3 className="px-2 text-xs font-semibold text-muted-foreground mb-2">Folders</h3>
+                            {folders.map(folder => (
+                                <FolderItem
+                                    key={folder.id}
+                                    folder={folder}
+                                    chatsMap={chats}
+                                    onSelectChat={handleSelectChat}
+                                    activeRootId={activeRootId}
+                                />
+                            ))}
+                        </div>
+                    )}
 
-                    {folders.map(folder => (
-                        <FolderItem
-                            key={folder.id}
-                            folder={folder}
-                            chatsMap={chats}
-                            onSelectChat={handleSelectChat}
-                            activeRootId={activeRootId}
-                        />
-                    ))}
+                    {/* Chats Section */}
+                    {(chats.get('root') && chats.get('root')!.length > 0) || (folders.length === 0 && (!chats.get('root') || chats.get('root')!.length === 0)) ? (
+                        <div>
+                             {(folders.length > 0 || (chats.get('root') && chats.get('root')!.length > 0)) && (
+                                <h3 className="px-2 text-xs font-semibold text-muted-foreground mb-2">Chats</h3>
+                             )}
+                            {chats.get('root')?.map(chat => (
+                                <DraggableChatItem key={chat.id} node={chat} onSelect={handleSelectChat} activeRootId={activeRootId} />
+                            ))}
+                        </div>
+                    ) : null}
+
                  </RootDroppable>
             </div>
             <DragOverlay>

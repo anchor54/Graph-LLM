@@ -53,7 +53,7 @@ export async function GET() {
         // Flat list is easier for now.
         const folders = await prisma.folder.findMany({
             where: { userId: user.id },
-            orderBy: { name: 'asc' },
+            orderBy: { updatedAt: 'desc' },
         });
         return NextResponse.json(folders);
     } catch (error) {
