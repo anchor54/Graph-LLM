@@ -57,31 +57,30 @@ export function Sidebar() {
 
     return (
         <div className="h-full bg-muted/40 border-r border-sidebar-border flex flex-col p-4">
-            <div className="flex items-center justify-between mb-4 shrink-0">
-                <h2 className="font-semibold">Folders</h2>
-                <div className="flex gap-1">
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setIsCreateFolderOpen(true)}
-                        className="h-8 px-2"
-                        title="New Folder"
-                    >
-                        <FolderPlus size={16} />
-                    </Button>
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                            setActiveNodeId(null);
-                            setActiveFolderId(null);
-                        }}
-                        className="h-8 px-2"
-                        title="New Chat"
-                    >
-                        <MessageSquarePlus size={16} />
-                    </Button>
-                </div>
+            <div className="flex flex-col gap-2 mb-4 shrink-0">
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsCreateFolderOpen(true)}
+                    className="w-full justify-start gap-2 h-9 cursor-pointer"
+                    title="New Folder"
+                >
+                    <FolderPlus size={16} />
+                    New Folder
+                </Button>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                        setActiveNodeId(null);
+                        setActiveFolderId(null);
+                    }}
+                    className="w-full justify-start gap-2 h-9 cursor-pointer"
+                    title="New Chat"
+                >
+                    <MessageSquarePlus size={16} />
+                    New Chat
+                </Button>
             </div>
             
             <div className="flex-1 overflow-y-auto min-h-0">

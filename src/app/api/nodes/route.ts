@@ -323,7 +323,7 @@ export async function GET(request: Request) {
 
         const nodes = await prisma.node.findMany({
             where,
-            orderBy: { createdAt: 'desc' },
+            orderBy: { updatedAt: 'desc' },
             take: 100, // Limit for safety
         });
         return NextResponse.json(nodes);
