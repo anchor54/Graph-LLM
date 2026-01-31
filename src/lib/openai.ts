@@ -1,6 +1,12 @@
 import OpenAI from 'openai';
 
-export const DEFAULT_OPENAI_MODEL = 'gpt-4o';
+export const DEFAULT_OPENAI_MODEL = 'gpt-5-mini';
+
+export const ALLOWED_OPENAI_MODELS = [
+    { name: 'gpt-5.2', displayName: 'GPT 5.2' },
+    { name: 'gpt-5-mini', displayName: 'GPT 5 Mini' },
+    { name: 'gpt-5-nano', displayName: 'GPT 5 Nano' },
+];
 
 // Helper to get client with provided key or fallback
 const getClient = (apiKey?: string): OpenAI | null => {
@@ -37,34 +43,29 @@ export async function getOpenAIModels(apiKey?: string) {
 
     try {
         // Prefer dynamic listing so newly released models show up automatically (for admin tooling).
+        // However, strictly filter to only the allowed list as per requirements.
         const list = await client.models.list();
+        const allowedNames = new Set(ALLOWED_OPENAI_MODELS.map(m => m.name));
+        
         const ids = list.data
             .map(m => m.id)
-            .filter(id => id.startsWith('gpt-') || id.startsWith('ft:gpt-') || /^o\d/.test(id) || id.startsWith('ft:o'));
+            .filter(id => allowedNames.has(id));
 
         // De-dupe + stable ordering
         const unique = Array.from(new Set(ids)).sort((a, b) => a.localeCompare(b));
 
         if (unique.length > 0) {
-            return unique.map(id => ({ name: id, displayName: prettyModelName(id) }));
+            return unique.map(id => {
+                const found = ALLOWED_OPENAI_MODELS.find(m => m.name === id);
+                return { name: id, displayName: found?.displayName || prettyModelName(id) };
+            });
         }
 
-        // Fallback to common models if list is empty for some reason
-        return [
-            { name: 'gpt-4o', displayName: 'GPT 4o' },
-            { name: 'gpt-4o-mini', displayName: 'GPT 4o Mini' },
-            { name: 'gpt-5', displayName: 'GPT 5' },
-            { name: 'gpt-5.2', displayName: 'GPT 5.2' },
-            { name: 'gpt-5-mini', displayName: 'GPT 5 Mini' },
-            { name: 'gpt-5-nano', displayName: 'GPT 5 Nano' },
-            { name: 'gpt-4.1', displayName: 'GPT 4.1' },
-            { name: 'gpt-4.1-mini', displayName: 'GPT 4.1 Mini' },
-            { name: 'gpt-4.1-nano', displayName: 'GPT 4.1 Nano' },
-            { name: 'o3-mini', displayName: 'O3 Mini' },
-        ];
+        // Fallback to allowed models if list is empty or none found
+        return ALLOWED_OPENAI_MODELS;
     } catch (error) {
         console.error('Error fetching OpenAI models:', error);
-        return [];
+        return ALLOWED_OPENAI_MODELS;
     }
 }
 

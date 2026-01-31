@@ -2,6 +2,14 @@ import { GoogleGenAI, Model } from '@google/genai';
 
 export const DEFAULT_MODEL = 'gemini-2.5-flash-lite';
 
+export const ALLOWED_GEMINI_MODELS = [
+    { name: 'gemini-3-pro-preview', displayName: 'Gemini 3 Pro Preview' },
+    { name: 'gemini-3-flash-preview', displayName: 'Gemini 3 Flash Preview' },
+    { name: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash' },
+    { name: 'gemini-2.5-flash-lite', displayName: 'Gemini 2.5 Flash Lite' },
+    { name: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro' },
+];
+
 // Helper to get client with provided key or fallback
 const getClient = (apiKey?: string): GoogleGenAI | null => {
     const key = apiKey || process.env.GEMINI_API_KEY;
@@ -20,22 +28,30 @@ export async function getModels(apiKey?: string) {
         // Use SDK to list models with async iteration
         const modelList = await ai.models.list();
         const chatModels: Array<{ name: string, displayName: string }> = [];
+        const allowedNames = new Set(ALLOWED_GEMINI_MODELS.map(m => m.name));
 
         // Use for-await to iterate through all pages automatically
         for await (const model of modelList) {
-            // Filter for models that support generateContent
-            if (model.supportedActions?.includes('generateContent')) {
+            // Filter for models that support generateContent AND are in our allowed list
+            const modelName = model.name?.replace('models/', '') || model.name || '';
+            
+            if (model.supportedActions?.includes('generateContent') && allowedNames.has(modelName)) {
+                 const found = ALLOWED_GEMINI_MODELS.find(m => m.name === modelName);
                 chatModels.push({
-                    name: model.name?.replace('models/', '') || model.name || '',
-                    displayName: model.displayName || model.name?.replace('models/', '') || '',
+                    name: modelName,
+                    displayName: found?.displayName || model.displayName || modelName,
                 });
             }
         }
 
-        return chatModels;
+        if (chatModels.length > 0) {
+            return chatModels;
+        }
+
+        return ALLOWED_GEMINI_MODELS;
     } catch (error) {
         console.error('Error fetching models via SDK:', error);
-        return [];
+        return ALLOWED_GEMINI_MODELS;
     }
 }
 

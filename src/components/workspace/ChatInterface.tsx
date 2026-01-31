@@ -693,7 +693,7 @@ export function ChatInterface() {
                         <textarea
                             ref={textareaRef}
                             className="w-full bg-transparent border-none focus:outline-none focus:ring-0 resize-none min-h-[48px] max-h-[200px] px-2 py-1 text-foreground placeholder:text-muted-foreground text-base"
-                            placeholder="Ask Gemini..."
+                            placeholder="Ask anything"
                             value={inputText}
                             onChange={(e) => setInputText(e.target.value)}
                             onKeyDown={(e) => {
@@ -706,11 +706,7 @@ export function ChatInterface() {
                             rows={1}
                         />
                         
-                        <div className="flex justify-between items-center mt-2 px-1">
-                            <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-muted-foreground hover:bg-background/50 hover:text-foreground bg-background/30">
-                                <Plus size={20} />
-                            </Button>
-
+                        <div className="flex justify-end items-center mt-2 px-1">
                             <div className="flex items-center gap-2">
                                 {!mounted ? (
                                     <Skeleton className="h-9 w-24 rounded-full" />

@@ -36,31 +36,17 @@ const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
 const GEMINI_MODELS = [
-    { name: 'gemini-2.0-flash-exp', displayName: 'Gemini 2.0 Flash (Experimental)' },
-    { name: 'gemini-2.5-flash-lite', displayName: 'Gemini 2.5 Flash Lite' },
+    { name: 'gemini-3-pro-preview', displayName: 'Gemini 3 Pro Preview' },
+    { name: 'gemini-3-flash-preview', displayName: 'Gemini 3 Flash Preview' },
     { name: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash' },
-    { name: 'gemini-1.5-flash', displayName: 'Gemini 1.5 Flash' },
-    { name: 'gemini-1.5-flash-8b', displayName: 'Gemini 1.5 Flash 8B' },
-    { name: 'gemini-1.5-pro', displayName: 'Gemini 1.5 Pro' },
+    { name: 'gemini-2.5-flash-lite', displayName: 'Gemini 2.5 Flash Lite' },
+    { name: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro' },
 ];
 
 const OPENAI_MODELS = [
-    { name: 'gpt-4o', displayName: 'GPT-4o' },
-    { name: 'gpt-4o-mini', displayName: 'GPT-4o Mini' },
-    { name: 'gpt-4-turbo', displayName: 'GPT-4 Turbo' },
-    { name: 'gpt-4', displayName: 'GPT-4' },
-    { name: 'gpt-3.5-turbo', displayName: 'GPT-3.5 Turbo' },
-    { name: 'o1', displayName: 'O1' },
-    { name: 'o1-mini', displayName: 'O1 Mini' },
-    // Newer families / common additions (keep disabled by default until you confirm access)
-    { name: 'gpt-5', displayName: 'GPT-5', enabled: false },
-    { name: 'gpt-5.2', displayName: 'GPT-5.2', enabled: false },
-    { name: 'gpt-5-mini', displayName: 'GPT-5 Mini', enabled: false },
-    { name: 'gpt-5-nano', displayName: 'GPT-5 Nano', enabled: false },
-    { name: 'gpt-4.1', displayName: 'GPT-4.1', enabled: false },
-    { name: 'gpt-4.1-mini', displayName: 'GPT-4.1 Mini', enabled: false },
-    { name: 'gpt-4.1-nano', displayName: 'GPT-4.1 Nano', enabled: false },
-    { name: 'o3-mini', displayName: 'O3 Mini', enabled: false },
+    { name: 'gpt-5.2', displayName: 'GPT 5.2' },
+    { name: 'gpt-5-mini', displayName: 'GPT 5 Mini' },
+    { name: 'gpt-5-nano', displayName: 'GPT 5 Nano' },
 ];
 
 async function seedModels() {
@@ -112,6 +98,30 @@ async function seedModels() {
                 },
             });
             console.log(`✓ Seeded OpenAI model: ${model.displayName}`);
+        }
+
+        // Cleanup old models
+        const allowedGeminiNames = GEMINI_MODELS.map(m => m.name);
+        const allowedOpenAINames = OPENAI_MODELS.map(m => m.name);
+        
+        const deletedGemini = await prisma.model.deleteMany({
+            where: {
+                provider: 'gemini',
+                name: { notIn: allowedGeminiNames }
+            }
+        });
+        if (deletedGemini.count > 0) {
+             console.log(`Deleted ${deletedGemini.count} old Gemini models.`);
+        }
+
+        const deletedOpenAI = await prisma.model.deleteMany({
+            where: {
+                provider: 'openai',
+                name: { notIn: allowedOpenAINames }
+            }
+        });
+        if (deletedOpenAI.count > 0) {
+             console.log(`Deleted ${deletedOpenAI.count} old OpenAI models.`);
         }
 
         console.log('\n✅ Model seeding completed successfully!');
