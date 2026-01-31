@@ -29,47 +29,69 @@ export interface UpdateModelData {
  * Get allowed models for a user (with caching)
  * Returns global models + user-specific overrides
  */
-export async function getAllowedModels(userId?: string): Promise<ModelData[]> {
+export async function getAllowedModels(
+    userId?: string, 
+    keys?: { gemini?: string; openai?: string }
+): Promise<ModelData[]> {
     // Check cache first
-    const cached = modelCache.getCachedModels(userId);
-    if (cached) {
-        return cached;
-    }
-
-    // Fetch from database
+    // Note: If keys are provided, we should probably NOT cache or include keys in cache key?
+    // Actually, the keys just filter the output, so we can fetch all and filter in memory.
+    
+    // Fetch from database or cache (ignoring keys for cache retrieval)
     let models: ModelData[];
+    const cached = modelCache.getCachedModels(userId);
+    
+    if (cached) {
+        models = cached;
+    } else {
+        if (userId) {
+            // Get global models and user-specific overrides
+            const globalModels = await prisma.model.findMany({
+                where: {
+                    isGlobal: true,
+                    enabled: true,
+                },
+            });
 
-    if (userId) {
-        // Get global models and user-specific overrides
-        const globalModels = await prisma.model.findMany({
-            where: {
-                isGlobal: true,
-                enabled: true,
-            },
-        });
+            const userModels = await prisma.userModel.findMany({
+                where: {
+                    userId,
+                },
+                include: {
+                    model: true,
+                },
+            });
 
-        const userModels = await prisma.userModel.findMany({
-            where: {
-                userId,
-            },
-            include: {
-                model: true,
-            },
-        });
+            // Create a map of user overrides
+            const userOverridesMap = new Map(
+                userModels.map(um => [um.modelId, um.enabled])
+            );
 
-        // Create a map of user overrides
-        const userOverridesMap = new Map(
-            userModels.map(um => [um.modelId, um.enabled])
-        );
+            // Filter global models based on user overrides
+            models = globalModels
+                .filter(model => {
+                    const userOverride = userOverridesMap.get(model.id);
+                    // If user has an override, respect it; otherwise include the model
+                    return userOverride !== false;
+                })
+                .map(model => ({
+                    id: model.id,
+                    provider: model.provider,
+                    name: model.name,
+                    displayName: model.displayName,
+                    enabled: model.enabled,
+                    isGlobal: model.isGlobal,
+                }));
+        } else {
+            // Just return global enabled models
+            const globalModels = await prisma.model.findMany({
+                where: {
+                    isGlobal: true,
+                    enabled: true,
+                },
+            });
 
-        // Filter global models based on user overrides
-        models = globalModels
-            .filter(model => {
-                const userOverride = userOverridesMap.get(model.id);
-                // If user has an override, respect it; otherwise include the model
-                return userOverride !== false;
-            })
-            .map(model => ({
+            models = globalModels.map(model => ({
                 id: model.id,
                 provider: model.provider,
                 name: model.name,
@@ -77,27 +99,21 @@ export async function getAllowedModels(userId?: string): Promise<ModelData[]> {
                 enabled: model.enabled,
                 isGlobal: model.isGlobal,
             }));
-    } else {
-        // Just return global enabled models
-        const globalModels = await prisma.model.findMany({
-            where: {
-                isGlobal: true,
-                enabled: true,
-            },
-        });
+        }
 
-        models = globalModels.map(model => ({
-            id: model.id,
-            provider: model.provider,
-            name: model.name,
-            displayName: model.displayName,
-            enabled: model.enabled,
-            isGlobal: model.isGlobal,
-        }));
+        // Cache the result (full set)
+        modelCache.setCachedModels(models, userId);
     }
 
-    // Cache the result
-    modelCache.setCachedModels(models, userId);
+    // Filter based on provided API keys
+    // If keys object is provided, we filter. If not provided (undefined), we return all (legacy behavior).
+    if (keys) {
+        return models.filter(m => {
+            if (m.provider === 'gemini') return !!keys.gemini;
+            if (m.provider === 'openai') return !!keys.openai;
+            return true; // Unknown provider
+        });
+    }
 
     return models;
 }

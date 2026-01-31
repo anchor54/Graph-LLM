@@ -40,6 +40,8 @@ function NodeErrorNotification() {
    );
 }
 
+import { ApiKeyPrompt } from './ApiKeyPrompt';
+
 export function WorkspaceLayout() {
    const isMobile = useIsMobile();
    const [mounted, setMounted] = useState(false);
@@ -53,6 +55,7 @@ export function WorkspaceLayout() {
    if (isMobile) {
      return (
        <>
+         <ApiKeyPrompt />
          <NodeErrorNotification />
          <div className="flex flex-col h-screen overflow-hidden bg-background text-foreground">
             <header className="flex items-center justify-between p-2 border-b border-border h-14 shrink-0 bg-background">
@@ -90,6 +93,7 @@ export function WorkspaceLayout() {
 
    return (
       <>
+        <ApiKeyPrompt />
         <NodeErrorNotification />
         <div className="h-screen w-full flex flex-col overflow-hidden">
           <ResizablePanelGroup direction="horizontal" className="flex-1" id="main-group">

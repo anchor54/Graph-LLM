@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { FolderTree } from './FolderTree';
 import { Button } from '@/components/ui/button';
-import { FolderPlus, MessageSquarePlus, LogOut } from 'lucide-react';
+import { FolderPlus, MessageSquarePlus, LogOut, Key } from 'lucide-react';
 import { useWorkspace } from '@/context/WorkspaceContext';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -15,10 +15,12 @@ import {
     DialogFooter,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { ApiKeyPrompt } from './ApiKeyPrompt';
 
 export function Sidebar() {
     const { setActiveNodeId, setActiveFolderId, triggerFolderRefresh } = useWorkspace();
     const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
+    const [isApiKeyPromptOpen, setIsApiKeyPromptOpen] = useState(false);
     const [newFolderName, setNewFolderName] = useState('');
     const [isCreating, setIsCreating] = useState(false);
     const router = useRouter();
@@ -89,11 +91,17 @@ export function Sidebar() {
             </div>
 
             <div className="mt-4 pt-4 border-t border-sidebar-border shrink-0 space-y-1">
+                <Button variant="ghost" className="w-full justify-start gap-2" onClick={() => setIsApiKeyPromptOpen(true)}>
+                    <Key size={16} />
+                    API Keys
+                </Button>
                 <Button variant="ghost" className="w-full justify-start gap-2 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={handleLogout}>
                     <LogOut size={16} />
                     Sign Out
                 </Button>
             </div>
+
+            <ApiKeyPrompt open={isApiKeyPromptOpen} onOpenChange={setIsApiKeyPromptOpen} />
 
             <Dialog open={isCreateFolderOpen} onOpenChange={setIsCreateFolderOpen}>
                 <DialogContent>

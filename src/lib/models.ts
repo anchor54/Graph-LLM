@@ -63,14 +63,15 @@ export async function getAllModelsFromProviders(
 export async function generateModelResponse(
     prompt: string,
     modelName: string,
-    context?: string
+    context?: string,
+    apiKey?: string
 ): Promise<string> {
     const provider = detectProvider(modelName);
     
     if (provider === 'openai') {
-        return await generateOpenAIResponse(prompt, modelName, context);
+        return await generateOpenAIResponse(prompt, modelName, context, apiKey);
     } else {
-        return await generateGeminiResponse(prompt, modelName, context);
+        return await generateGeminiResponse(prompt, modelName, context, apiKey);
     }
 }
 
@@ -80,13 +81,14 @@ export async function generateModelResponse(
 export async function* streamModelResponse(
     prompt: string,
     modelName: string,
-    context?: string
+    context?: string,
+    apiKey?: string
 ) {
     const provider = detectProvider(modelName);
     
     if (provider === 'openai') {
-        yield* streamOpenAIResponse(prompt, modelName, context);
+        yield* streamOpenAIResponse(prompt, modelName, context, apiKey);
     } else {
-        yield* streamGeminiResponse(prompt, modelName, context);
+        yield* streamGeminiResponse(prompt, modelName, context, apiKey);
     }
 }

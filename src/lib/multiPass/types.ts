@@ -9,6 +9,7 @@ export interface MultiPassContext {
     userPrompt: string;
     modelName: string;
     historyContext?: string; // Previous conversation
+    apiKey?: string;
 }
 
 export interface PassResult {
