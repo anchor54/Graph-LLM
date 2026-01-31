@@ -24,7 +24,7 @@ export class MultiPassOrchestrator {
         // Use a fast/smart model for gating if possible, but sticking to requested model or default
         // We enforce JSON format in the prompt
         try {
-            const responseText = await generateModelResponse(prompt, context.modelName);
+            const responseText = await generateModelResponse(prompt, context.modelName, undefined, context.apiKey);
             
             // Attempt to parse JSON
             const jsonMatch = responseText.match(/\{[\s\S]*\}/);
@@ -61,7 +61,7 @@ export class MultiPassOrchestrator {
             .replace('{{intent}}', intent)
             + `\n\nFull User Query: ${context.userPrompt}\nContext: ${context.historyContext || "None"}`;
 
-        return await generateModelResponse(prompt, context.modelName);
+        return await generateModelResponse(prompt, context.modelName, undefined, context.apiKey);
     }
 
     /**
@@ -76,7 +76,7 @@ export class MultiPassOrchestrator {
             .replace('{{intent}}', intent)
             .replace('{{reasoning}}', reasoning);
 
-        return await generateModelResponse(prompt, context.modelName);
+        return await generateModelResponse(prompt, context.modelName, undefined, context.apiKey);
     }
 
     /**
@@ -87,7 +87,7 @@ export class MultiPassOrchestrator {
         context: MultiPassContext
     ): Promise<string> {
         const prompt = `${QUALITY_REWRITE_PROMPT}\n\nDraft Content:\n${draftAnswer}`;
-        return await generateModelResponse(prompt, context.modelName);
+        return await generateModelResponse(prompt, context.modelName, undefined, context.apiKey);
     }
 
     /**
@@ -98,7 +98,7 @@ export class MultiPassOrchestrator {
         context: MultiPassContext
     ): AsyncGenerator<string, void, unknown> {
         const prompt = `${TONE_REWRITE_PROMPT}\n\nContent:\n${content}`;
-        yield* streamModelResponse(prompt, context.modelName);
+        yield* streamModelResponse(prompt, context.modelName, undefined, context.apiKey);
     }
 
     /**

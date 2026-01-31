@@ -45,6 +45,10 @@ export async function POST(request: Request) {
         const body = await request.json();
         const { userPrompt, parentId, folderId, modelMetadata, citations, referencedNodeIds, references } = body;
 
+        // Extract API keys from headers
+        const geminiKey = request.headers.get('X-Gemini-API-Key') || undefined;
+        const openaiKey = request.headers.get('X-OpenAI-API-Key') || undefined;
+
         // Validate required fields
         if (!userPrompt) {
             return NextResponse.json({ error: 'User prompt is required' }, { status: 400 });
@@ -163,6 +167,7 @@ export async function POST(request: Request) {
         // 2. Create the new node
         const modelName = modelMetadata?.model || DEFAULT_MODEL;
         const provider = detectProvider(modelName);
+        const apiKey = provider === 'openai' ? openaiKey : geminiKey;
         
         const node = await prisma.node.create({
             data: {
@@ -189,7 +194,8 @@ export async function POST(request: Request) {
             const context: MultiPassContext = {
                 userPrompt,
                 modelName,
-                historyContext: promptContext || undefined
+                historyContext: promptContext || undefined,
+                apiKey
             };
             
             stream = MultiPassOrchestrator.streamMultiPass(context, (meta) => {
@@ -199,7 +205,8 @@ export async function POST(request: Request) {
             stream = streamModelResponse(
                 userPrompt,
                 modelName,
-                promptContext || undefined
+                promptContext || undefined,
+                apiKey
             );
         }
         
@@ -225,7 +232,7 @@ export async function POST(request: Request) {
                     
                     // 4. Compute Display Metadata & Update DB
                     try {
-                        const displayData = await generateNodeDisplay(userPrompt, fullAiResponse, modelName);
+                        const displayData = await generateNodeDisplay(userPrompt, fullAiResponse, modelName, apiKey);
 
                         await prisma.node.update({
                             where: { id: node.id },

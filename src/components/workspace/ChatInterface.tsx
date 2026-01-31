@@ -88,8 +88,8 @@ export function ChatInterface() {
     
     const [inputText, setInputText] = useState('');
     const [sending, setSending] = useState(false);
-    const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash');
-    const [availableModels, setAvailableModels] = useState<{ name: string, displayName: string }[]>([]);
+    const [availableModels, setAvailableModels] = useState<{ name: string, displayName: string, provider?: string }[]>([]);
+    const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash'); // Default fallback
     const [modelsLoading, setModelsLoading] = useState(true);
     const [activeCitations, setActiveCitations] = useState<Citation[]>([]);
     const [mounted, setMounted] = useState(false);
@@ -163,10 +163,53 @@ export function ChatInterface() {
     useEffect(() => {
         const fetchModels = async () => {
             try {
-                const res = await fetch('/api/models');
+                const headers: Record<string, string> = {};
+                const geminiKey = localStorage.getItem('gemini_api_key');
+                const openaiKey = localStorage.getItem('openai_api_key');
+                
+                if (geminiKey) headers['X-Gemini-API-Key'] = geminiKey;
+                if (openaiKey) headers['X-OpenAI-API-Key'] = openaiKey;
+
+                const res = await fetch('/api/models', {
+                    headers
+                });
                 if (res.ok) {
-                    const models = await res.json();
+                    const models: { name: string, displayName: string, provider?: string }[] = await res.json();
                     setAvailableModels(models);
+                    
+                    // Determine default model
+                    if (models.length > 0) {
+                        const hasGemini = models.some(m => m.provider === 'gemini');
+                        const hasOpenAI = models.some(m => m.provider === 'openai');
+                        
+                        // Default logic:
+                        // 1. If Gemini available (or both), use Gemini default
+                        // 2. If only OpenAI available, use OpenAI default
+                        // 3. Fallback to first available or hardcoded fallback
+                        
+                        if (hasGemini) {
+                            // Find Gemini default if in list, or first Gemini model
+                            const geminiDefault = models.find(m => m.name === 'gemini-2.5-flash' || m.name === 'gemini-2.5-flash-lite');
+                            if (geminiDefault) {
+                                setSelectedModel(geminiDefault.name);
+                            } else {
+                                const firstGemini = models.find(m => m.provider === 'gemini');
+                                if (firstGemini) setSelectedModel(firstGemini.name);
+                            }
+                        } else if (hasOpenAI) {
+                            // Find OpenAI default if in list, or first OpenAI model
+                            const openaiDefault = models.find(m => m.name === 'gpt-4o' || m.name === 'gpt-4o-mini');
+                            if (openaiDefault) {
+                                setSelectedModel(openaiDefault.name);
+                            } else {
+                                const firstOpenAI = models.find(m => m.provider === 'openai');
+                                if (firstOpenAI) setSelectedModel(firstOpenAI.name);
+                            }
+                        } else {
+                            // Should not happen if models > 0, but safe fallback
+                            setSelectedModel(models[0].name);
+                        }
+                    }
                 }
             } catch (error) {
                 console.error('Failed to load models', error);
@@ -295,7 +338,9 @@ export function ChatInterface() {
             const res = await fetch('/api/nodes', {
                 method: 'POST',
                 headers: { 
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    ...(localStorage.getItem('gemini_api_key') ? { 'X-Gemini-API-Key': localStorage.getItem('gemini_api_key')! } : {}),
+                    ...(localStorage.getItem('openai_api_key') ? { 'X-OpenAI-API-Key': localStorage.getItem('openai_api_key')! } : {})
                 },
                 body: JSON.stringify({
                     userPrompt,

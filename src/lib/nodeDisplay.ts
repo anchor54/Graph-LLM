@@ -12,7 +12,8 @@ interface NodeDisplayData {
 export async function generateNodeDisplay(
     userPrompt: string,
     aiResponse: string,
-    modelName: string = GEMINI_MODEL
+    modelName: string = GEMINI_MODEL,
+    apiKey?: string
 ): Promise<NodeDisplayData> {
     const provider = detectProvider(modelName);
     
@@ -45,9 +46,9 @@ export async function generateNodeDisplay(
     
     try {
         if (provider === 'openai') {
-            rawResponse = await generateOpenAIResponse(systemPrompt, modelName) || "{}";
+            rawResponse = await generateOpenAIResponse(systemPrompt, modelName, undefined, apiKey) || "{}";
         } else {
-            rawResponse = await generateGeminiResponse(systemPrompt, modelName) || "{}";
+            rawResponse = await generateGeminiResponse(systemPrompt, modelName, undefined, apiKey) || "{}";
         }
         
         // Cleanup response (remove markdown code blocks if present)
