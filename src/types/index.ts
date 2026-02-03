@@ -34,3 +34,5 @@ export interface ContextItem {
     type: 'folder' | 'chat' | 'node';
     name?: string; // Optional name for display
 }
+
+export * from './semantic';

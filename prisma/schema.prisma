@@ -7,35 +7,39 @@ datasource db {
 }
 
 model User {
-  id         String      @id
-  email      String      @unique
-  createdAt  DateTime    @default(now())
-  folders    Folder[]
-  nodes      Node[]
-  userModels UserModel[]
+  id            String         @id
+  email         String         @unique
+  createdAt     DateTime       @default(now())
+  folders       Folder[]
+  nodes         Node[]
+  userModels    UserModel[]
+  thoughtGraphs ThoughtGraph[]
+  exportJobs    MarkdownConversionJob[]
 }
 
 model Node {
-  id             String   @id @default(uuid())
+  id             String         @id @default(uuid())
   parentId       String?
   folderId       String?
   summary        String?
   userPrompt     String
   aiResponse     String?
   modelMetadata  Json?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
   userId         String
   references     Json?
   classification String?
-  collapsed      Boolean  @default(false)
-  isLowSignal    Boolean  @default(false)
+  collapsed      Boolean        @default(false)
+  isLowSignal    Boolean        @default(false)
   topics         Json?
-  previewBullets Json?    // Array of strings (max 3) - Added for Part 1
-  folder         Folder?  @relation(fields: [folderId], references: [id], onDelete: Cascade)
-  parent         Node?    @relation("Tree", fields: [parentId], references: [id])
-  children       Node[]   @relation("Tree")
-  user           User     @relation(fields: [userId], references: [id])
+  previewBullets Json?          // Array of strings (max 3)
+  folder         Folder?        @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  parent         Node?          @relation("Tree", fields: [parentId], references: [id])
+  children       Node[]         @relation("Tree")
+  user           User           @relation(fields: [userId], references: [id])
+  thoughtGraphs  ThoughtGraph[]
+  exportJobs     MarkdownConversionJob[]
 }
 
 model Folder {
@@ -78,4 +82,77 @@ model UserModel {
 
   @@unique([userId, modelId])
   @@index([userId])
+}
+
+model ThoughtGraph {
+  id         String         @id @default(uuid())
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  userId     String
+  user       User           @relation(fields: [userId], references: [id])
+  rootNodeId String?
+  rootNode   Node?          @relation(fields: [rootNodeId], references: [id])
+  nodes      SemanticNode[]
+  edges      ThoughtEdge[]
+  exportJobs MarkdownConversionJob[]
+}
+
+model SemanticNode {
+  id            String        @id @default(uuid())
+  graphId       String
+  graph         ThoughtGraph  @relation(fields: [graphId], references: [id], onDelete: Cascade)
+  type          String
+  title         String
+  summary       String
+  sourceNodeIds Json
+  confidence    Float?
+  outgoingEdges ThoughtEdge[] @relation("SourceNode")
+  incomingEdges ThoughtEdge[] @relation("TargetNode")
+}
+
+model ThoughtEdge {
+  id       String       @id @default(uuid())
+  graphId  String
+  graph    ThoughtGraph @relation(fields: [graphId], references: [id], onDelete: Cascade)
+  fromId   String
+  from     SemanticNode @relation("SourceNode", fields: [fromId], references: [id], onDelete: Cascade)
+  toId     String
+  to       SemanticNode @relation("TargetNode", fields: [toId], references: [id], onDelete: Cascade)
+  relation String
+}
+
+model MarkdownConversionJob {
+  id             String         @id @default(uuid())
+  userId         String
+  user           User           @relation(fields: [userId], references: [id])
+  nodeId         String
+  node           Node           @relation(fields: [nodeId], references: [id])
+  scope          String         // 'subtree' | 'root_to_current'
+  intentText     String?
+  status         String         // 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+  currentStage   String         // 'analyzing', 'graph', 'intent', 'prepare', 'render'
+  exportPlan     Json?
+  resultMarkdown String?
+  thoughtGraphId String?
+  thoughtGraph   ThoughtGraph?  @relation(fields: [thoughtGraphId], references: [id])
+  errorMessage   String?
+  createdAt      DateTime       @default(now())
+  startedAt      DateTime?
+  completedAt    DateTime?
+  cancelledAt    DateTime?
+  stages         MarkdownConversionStage[]
+}
+
+model MarkdownConversionStage {
+  id           String                @id @default(uuid())
+  jobId        String
+  job          MarkdownConversionJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  key          String                // e.g., 'analyzing', 'graph', 'intent', 'prepare', 'render'
+  status       String                // 'pending' | 'in_progress' | 'completed' | 'failed'
+  startedAt    DateTime?
+  completedAt  DateTime?
+  errorMessage String?
+  metadata     Json?                 // For persisted artifacts per stage
+
+  @@unique([jobId, key])
 }

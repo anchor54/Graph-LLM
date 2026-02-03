@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useWorkspace } from '@/context/WorkspaceContext';
 import { Node, ContextItem } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Send, User, Bot, Loader2, GitBranch, Quote, MoreHorizontal, Scissors, Plus, Trash2, BookmarkCheck, X, Bookmark, Copy, Check } from 'lucide-react';
+import { Send, User, Bot, Loader2, GitBranch, Quote, MoreHorizontal, Scissors, Plus, Trash2, BookmarkCheck, X, Bookmark, Copy, Check, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -15,6 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { SelectionMenu } from './SelectionMenu';
 import { CitationsDisplay, Citation } from './CitationsDisplay';
 import { getAncestryPath, getChildrenCounts } from '@/lib/treeUtils';
+import { MarkdownExportDialog } from './MarkdownExportDialog';
 
 import {
     Select,
@@ -95,6 +96,7 @@ export function ChatInterface() {
     const [mounted, setMounted] = useState(false);
     const [nodeToDelete, setNodeToDelete] = useState<{ id: string, parentId: string | null } | null>(null);
     const [copied, setCopied] = useState<{ id: string; source: 'user' | 'ai' } | null>(null);
+    const [exportNodeId, setExportNodeId] = useState<string | null>(null);
     const copyResetTimerRef = useRef<number | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -623,6 +625,16 @@ export function ChatInterface() {
                                                     )}
                                                     Context
                                                 </Button>
+                                                <Button 
+                                                    variant="ghost" 
+                                                    size="sm"
+                                                    className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground gap-1.5"
+                                                    onClick={() => setExportNodeId(node.id)}
+                                                    title="Export to Markdown"
+                                                >
+                                                    <FileText size={14} />
+                                                    Export
+                                                </Button>
                                                 {node.parentId && (
                                                     <Button 
                                                         variant="ghost" 
@@ -775,6 +787,12 @@ export function ChatInterface() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            <MarkdownExportDialog 
+                open={!!exportNodeId} 
+                onOpenChange={(open) => !open && setExportNodeId(null)} 
+                nodeId={exportNodeId} 
+            />
         </div>
     );
 }
