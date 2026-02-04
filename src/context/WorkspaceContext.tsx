@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContextItem, Node } from '@/types';
 import { normalizeTree, getRoot } from '@/lib/treeUtils';
@@ -11,13 +11,13 @@ interface WorkspaceContextType {
     activeNodeId: string | null;
     setActiveNodeId: (id: string | null) => void; // Deprecated, use switchNode
     switchNode: (id: string | null) => Promise<void>;
-    
+
     // Tree State
     nodesById: Map<string, Node>;
     addNode: (node: Node) => void;
     updateNode: (id: string, updates: Partial<Node>) => void;
     loadTree: (rootId: string) => Promise<void>;
-    
+
     // Legacy / Other
     graphRefreshTrigger: number;
     triggerGraphRefresh: () => void;
@@ -27,6 +27,8 @@ interface WorkspaceContextType {
     toggleContextItem: (item: ContextItem) => void;
     nodeError: string | null;
     clearNodeError: () => void;
+    draftInput: string;
+    setDraftInput: (input: string) => void;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
@@ -35,14 +37,22 @@ export function WorkspaceProvider({ children, nodeId }: { children: ReactNode; n
     const router = useRouter();
     const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
     const [activeNodeId, setActiveNodeIdState] = useState<string | null>(nodeId);
-    
+
     // Tree State
     const [nodesById, setNodesById] = useState<Map<string, Node>>(new Map());
-    
+
     const [graphRefreshTrigger, setGraphRefreshTrigger] = useState(0);
     const [folderRefreshTrigger, setFolderRefreshTrigger] = useState(0);
     const [contextItems, setContextItems] = useState<ContextItem[]>([]);
     const [nodeError, setNodeError] = useState<string | null>(null);
+    const [draftInput, setDraftInput] = useState('');
+    const [drafts, setDrafts] = useState<Record<string, string>>({});
+    const draftInputRef = useRef(draftInput);
+
+    // Keep ref in sync
+    useLayoutEffect(() => {
+        draftInputRef.current = draftInput;
+    }, [draftInput]);
 
     useEffect(() => {
         const storedContext = localStorage.getItem('workspace_context_items');
@@ -58,36 +68,36 @@ export function WorkspaceProvider({ children, nodeId }: { children: ReactNode; n
     // Load initial tree if nodeId is provided
     useEffect(() => {
         if (nodeId) {
-             // We need to find the root to load the whole tree
-             // But initially we might only have the nodeId.
-             // We can fetch the ancestry of the nodeId to find the root, then load the tree.
-             // Or simpler: just use the existing validation logic but upgrade it to load the tree.
-             
-             const init = async () => {
-                 try {
-                     // Get ancestry to find root
-                     const res = await fetch(`/api/graph/${nodeId}?direction=ancestors`);
-                     if (res.ok) {
-                         const ancestors: Node[] = await res.json();
-                         const root = ancestors.find(n => !n.parentId);
-                         if (root) {
-                             await loadTree(root.id);
-                             setActiveNodeIdState(nodeId);
-                             setNodeError(null);
-                         }
-                     } else if (res.status === 404) {
-                         setNodeError(`Chat node not found.`);
-                         router.replace('/', { scroll: false });
-                     } else {
-                         setNodeError(`Unable to load chat node.`);
-                     }
-                 } catch (e) {
-                     console.error("Failed to initialize tree", e);
-                     setNodeError(`Network error.`);
-                 }
-             };
-             
-             init();
+            // We need to find the root to load the whole tree
+            // But initially we might only have the nodeId.
+            // We can fetch the ancestry of the nodeId to find the root, then load the tree.
+            // Or simpler: just use the existing validation logic but upgrade it to load the tree.
+
+            const init = async () => {
+                try {
+                    // Get ancestry to find root
+                    const res = await fetch(`/api/graph/${nodeId}?direction=ancestors`);
+                    if (res.ok) {
+                        const ancestors: Node[] = await res.json();
+                        const root = ancestors.find(n => !n.parentId);
+                        if (root) {
+                            await loadTree(root.id);
+                            setActiveNodeIdState(nodeId);
+                            setNodeError(null);
+                        }
+                    } else if (res.status === 404) {
+                        setNodeError(`Chat node not found.`);
+                        router.replace('/', { scroll: false });
+                    } else {
+                        setNodeError(`Unable to load chat node.`);
+                    }
+                } catch (e) {
+                    console.error("Failed to initialize tree", e);
+                    setNodeError(`Network error.`);
+                }
+            };
+
+            init();
         }
     }, [nodeId, router]);
 
@@ -118,6 +128,20 @@ export function WorkspaceProvider({ children, nodeId }: { children: ReactNode; n
     }, []);
 
     const switchNode = useCallback(async (id: string | null) => {
+        // If switching to the same node, do nothing
+        if (id === activeNodeId) {
+            return;
+        }
+
+        // Save current draft before switching
+        const currentKey = activeNodeId || 'root';
+        const currentDraft = draftInputRef.current;
+        setDrafts(prev => ({ ...prev, [currentKey]: currentDraft }));
+
+        // Restore draft for the new node
+        const nextKey = id || 'root';
+        setDraftInput(drafts[nextKey] || '');
+
         if (!id) {
             setActiveNodeIdState(null);
             return;
@@ -144,7 +168,7 @@ export function WorkspaceProvider({ children, nodeId }: { children: ReactNode; n
         } catch (e) {
             console.error("Failed to switch node", e);
         }
-    }, [nodesById, loadTree]);
+    }, [nodesById, loadTree, activeNodeId, drafts]);
 
     // Legacy support
     const setActiveNodeId = (id: string | null) => {
@@ -163,7 +187,7 @@ export function WorkspaceProvider({ children, nodeId }: { children: ReactNode; n
         setNodesById(prev => {
             const node = prev.get(id);
             if (!node) return prev;
-            
+
             const newMap = new Map(prev);
             newMap.set(id, { ...node, ...updates });
             return newMap;
@@ -188,8 +212,8 @@ export function WorkspaceProvider({ children, nodeId }: { children: ReactNode; n
         setGraphRefreshTrigger(prev => prev + 1);
         // Also reload tree if active
         if (activeNodeId) {
-             const root = getRoot(nodesById, activeNodeId);
-             if (root) loadTree(root.id);
+            const root = getRoot(nodesById, activeNodeId);
+            if (root) loadTree(root.id);
         }
     };
 
@@ -221,6 +245,8 @@ export function WorkspaceProvider({ children, nodeId }: { children: ReactNode; n
                 toggleContextItem,
                 nodeError,
                 clearNodeError,
+                draftInput,
+                setDraftInput,
             }}
         >
             {children}
