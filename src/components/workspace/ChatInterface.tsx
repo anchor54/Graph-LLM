@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useWorkspace } from '@/context/WorkspaceContext';
 import { Node, ContextItem } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Send, User, Bot, Loader2, GitBranch, Quote, MoreHorizontal, Scissors, Plus, Trash2, BookmarkCheck, X, Bookmark, Copy, Check } from 'lucide-react';
+import { Send, User, Bot, Loader2, GitBranch, Quote, MoreHorizontal, Scissors, Plus, Trash2, BookmarkCheck, X, Bookmark, Copy, Check, ChevronDown, ChevronUp, Layers } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -62,6 +62,77 @@ const CodeBlock = ({ inline, className, children, isDark }: any) => {
         <code className={className}>
             {children}
         </code>
+    );
+};
+
+// Collapsible Context Component for Messages
+const CollapsibleMessageContext = ({ citations, references, nodesById }: { citations: any[], references: any[], nodesById: Map<string, Node> }) => {
+    const [isOpen, setIsOpen] = React.useState(false);
+
+    // Citations can be direct (optimistic) or in modelMetadata (DB)
+    const allCitations = citations || [];
+
+    const hasCitations = allCitations.length > 0;
+    const hasReferences = references && references.length > 0;
+
+    if (!hasCitations && !hasReferences) return null;
+
+    const summaryParts = [];
+    if (hasCitations) summaryParts.push(`${allCitations.length} ${allCitations.length === 1 ? 'Quote' : 'Quotes'}`);
+    if (hasReferences) summaryParts.push(`${references.length} ${references.length === 1 ? 'Ref' : 'Refs'}`);
+
+    return (
+        <div className="w-full mb-1 flex flex-col items-end">
+            <button
+                onClick={() => setIsOpen(!isOpen)}
+                className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-medium text-muted-foreground hover:bg-muted/50 transition-colors uppercase tracking-wider"
+            >
+                <Layers size={10} className="text-blue-500" />
+                <span>Context: {summaryParts.join(', ')}</span>
+                {isOpen ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+            </button>
+
+            {isOpen && (
+                <div className="w-full mt-2 space-y-2 animate-in slide-in-from-top-1 duration-200">
+                    {/* Citations */}
+                    {hasCitations && (
+                        <div className="flex flex-col items-end gap-1">
+                            {allCitations.map((c: any, i: number) => (
+                                <div key={i} className="bg-muted border border-border text-muted-foreground text-[10px] px-2 py-1 rounded-xl rounded-tr-sm max-w-[200px] block italic" title={c.text}>
+                                    <div className="truncate">
+                                        <Quote size={8} className="inline mr-1 text-primary" />
+                                        "{c.text}"
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* References */}
+                    {hasReferences && (
+                        <div className="flex flex-wrap justify-end gap-1">
+                            {references.map((r: any, i: number) => {
+                                // Resolve readable name from nodesById if possible
+                                let displayName = r.name || r.type;
+                                if (r.type === 'node' && nodesById.has(r.id)) {
+                                    const node = nodesById.get(r.id);
+                                    if (node) {
+                                        displayName = node.summary || node.userPrompt.slice(0, 30) + '...';
+                                    }
+                                }
+
+                                return (
+                                    <div key={i} className="inline-flex items-center gap-1 bg-blue-50/50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-[10px] px-2 py-0.5 rounded-full" title={displayName}>
+                                        <BookmarkCheck size={8} />
+                                        <span className="max-w-[150px] truncate">{displayName}</span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
     );
 };
 
@@ -467,27 +538,11 @@ export function ChatInterface() {
                             <div key={node.id} className="space-y-4 group">
                                 {/* User Message */}
                                 <div className="flex flex-col items-end gap-1 group/user" data-message-id={node.id} data-message-source="user">
-                                    {(node as any).citations && (node as any).citations.length > 0 && (
-                                        <div className="mb-1 text-right">
-                                            {(node as any).citations.map((c: any, i: number) => (
-                                                <div key={i} className="inline-block bg-muted border border-border text-muted-foreground text-[10px] px-2 py-1 rounded-full mr-1 max-w-[200px] truncate" title={c.text}>
-                                                    <Quote size={8} className="inline mr-1" />
-                                                    "{c.text}"
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-
-                                    {(node as any).references && (node as any).references.length > 0 && (
-                                        <div className="mb-1 text-right flex flex-wrap justify-end gap-1">
-                                            {(node as any).references.map((r: any, i: number) => (
-                                                <div key={i} className="inline-flex items-center gap-1 bg-blue-50/50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-[10px] px-2 py-0.5 rounded-full">
-                                                    <BookmarkCheck size={8} />
-                                                    <span className="max-w-[150px] truncate">{r.name || r.type}</span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
+                                    <CollapsibleMessageContext
+                                        citations={node.citations || (node.modelMetadata as any)?.citations || []}
+                                        references={(node as any).references}
+                                        nodesById={nodesById}
+                                    />
 
                                     <div className="bg-muted text-foreground p-3 rounded-2xl rounded-tr-sm max-w-[80%] shadow-sm">
                                         <div className="prose prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-pre:my-2">

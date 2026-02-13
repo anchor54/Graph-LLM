@@ -21,7 +21,7 @@ import { useWorkspace } from '@/context/WorkspaceContext';
 import {
     GitBranch, Bookmark, BookmarkCheck, Scissors, Trash2,
     CheckCircle, Lightbulb, HelpCircle, AlertTriangle, ArrowRightCircle,
-    Link as LinkIcon, Minimize2, Maximize2, ChevronRight, Plus
+    Link as LinkIcon, Minimize2, Maximize2, ChevronRight, Plus, Quote
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -132,11 +132,23 @@ const CustomNode = React.memo(({ data, id }: { data: any, id: string }) => {
 
                     {/* Bullets */}
                     {data.previewBullets && data.previewBullets.length > 0 && (
-                        <div className="space-y-1">
+                        <div className="space-y-1 mb-2">
                             {data.previewBullets.map((b: string, i: number) => (
                                 <div key={i} className="text-[10px] text-muted-foreground flex items-start gap-1">
                                     <span className="mt-1 block h-1 w-1 rounded-full bg-muted-foreground/50 shrink-0" />
                                     <span>{b}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Quotes/Citations */}
+                    {data.modelMetadata?.citations && data.modelMetadata.citations.length > 0 && (
+                        <div className="space-y-1 border-t border-border pt-2">
+                            {data.modelMetadata.citations.map((c: any, i: number) => (
+                                <div key={i} className="text-[10px] text-muted-foreground flex items-start gap-1 italic">
+                                    <Quote size={8} className="mt-0.5 shrink-0 text-primary" />
+                                    <span className="line-clamp-3">"{c.text}"</span>
                                 </div>
                             ))}
                         </div>
@@ -462,7 +474,8 @@ export function GraphVisualization() {
                         onToggleContext: toggleContextItem,
                         onCut: handleCutToNewChat,
                         onDelete: handleDeleteClick,
-                        onToggleCollapse: toggleCollapse
+                        onToggleCollapse: toggleCollapse,
+                        modelMetadata: n.modelMetadata
                     },
                 })),
                 ...collapsedPlaceholders.map(p => ({
@@ -576,10 +589,20 @@ export function GraphVisualization() {
 
         // b) & c) References in Active Graph History
         await Promise.all(activeGraphNodes.map(async (node) => {
+            // Context references
             if (node.references && Array.isArray(node.references)) {
                 await Promise.all(node.references.map((ref: any) =>
                     addReference(ref.id, ref.type, node.id)
                 ));
+            }
+
+            // Citation references (Quotes)
+            if (node.modelMetadata?.citations && Array.isArray(node.modelMetadata.citations)) {
+                await Promise.all(node.modelMetadata.citations.map((cite: any) => {
+                    if (cite.nodeId) {
+                        return addReference(cite.nodeId, 'node', node.id);
+                    }
+                }));
             }
         }));
 
@@ -627,6 +650,7 @@ export function GraphVisualization() {
                     isReference: true,
                     topics: n.topics,
                     classification: n.classification,
+                    modelMetadata: n.modelMetadata,
                 },
             }));
 
@@ -682,6 +706,7 @@ export function GraphVisualization() {
                     isReference: true,
                     topics: nodeData.topics,
                     classification: nodeData.classification,
+                    modelMetadata: nodeData.modelMetadata,
                 },
             });
         });
@@ -723,31 +748,36 @@ export function GraphVisualization() {
     // Update edge visibility and node hover state
     useEffect(() => {
         setEdges(prevEdges => prevEdges.map(edge => {
-            // If it's a reference edge (starts with ref-)
             if (edge.id.startsWith('ref-')) {
-                // Show if either source or target is hovered or active
-                // Also show if one end is the 'draft-node' and it's visible
                 const isDraftEdge = edge.source === 'draft-node' || edge.target === 'draft-node';
-
                 const isRelevant =
                     edge.source === hoveredNodeId ||
                     edge.target === hoveredNodeId ||
                     edge.source === activeNodeId ||
                     edge.target === activeNodeId ||
-                    isDraftEdge; // Always show reference edges connected to the draft node
+                    isDraftEdge;
 
+                if (edge.hidden === !isRelevant) return edge;
                 return { ...edge, hidden: !isRelevant };
             }
             return edge;
         }));
 
-        setNodes(prevNodes => prevNodes.map(node => ({
-            ...node,
-            data: {
-                ...node.data,
-                isHovered: node.id === hoveredNodeId
-            }
-        })));
+        setNodes(prevNodes => {
+            return prevNodes.map(node => {
+                const isHovered = node.id === hoveredNodeId;
+
+                if (node.data.isHovered === isHovered) return node;
+
+                return {
+                    ...node,
+                    data: {
+                        ...node.data,
+                        isHovered,
+                    }
+                };
+            });
+        });
     }, [hoveredNodeId, activeNodeId, setEdges, setNodes]);
 
     const onNodeClick = (_: React.MouseEvent, node: Node) => {
