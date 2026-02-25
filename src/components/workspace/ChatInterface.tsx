@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useWorkspace } from '@/context/WorkspaceContext';
 import { Node, ContextItem } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Send, User, Bot, Loader2, GitBranch, Quote, MoreHorizontal, Scissors, Plus, Trash2, BookmarkCheck, X, Bookmark, Copy, Check } from 'lucide-react';
+import { Send, User, Bot, Loader2, GitBranch, Quote, MoreHorizontal, Scissors, Plus, Trash2, BookmarkCheck, X, Bookmark, Copy, Check, ChevronDown, ChevronUp, Layers } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -44,7 +44,7 @@ import {
 const CodeBlock = ({ inline, className, children, isDark }: any) => {
     const match = /language-(\w+)/.exec(className || '');
     const language = match ? match[1] : '';
-    
+
     return !inline && language ? (
         <SyntaxHighlighter
             style={isDark ? vscDarkPlus : vs}
@@ -65,6 +65,77 @@ const CodeBlock = ({ inline, className, children, isDark }: any) => {
     );
 };
 
+// Collapsible Context Component for Messages
+const CollapsibleMessageContext = ({ citations, references, nodesById }: { citations: any[], references: any[], nodesById: Map<string, Node> }) => {
+    const [isOpen, setIsOpen] = React.useState(false);
+
+    // Citations can be direct (optimistic) or in modelMetadata (DB)
+    const allCitations = citations || [];
+
+    const hasCitations = allCitations.length > 0;
+    const hasReferences = references && references.length > 0;
+
+    if (!hasCitations && !hasReferences) return null;
+
+    const summaryParts = [];
+    if (hasCitations) summaryParts.push(`${allCitations.length} ${allCitations.length === 1 ? 'Quote' : 'Quotes'}`);
+    if (hasReferences) summaryParts.push(`${references.length} ${references.length === 1 ? 'Ref' : 'Refs'}`);
+
+    return (
+        <div className="w-full mb-1 flex flex-col items-end">
+            <button
+                onClick={() => setIsOpen(!isOpen)}
+                className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-medium text-muted-foreground hover:bg-muted/50 transition-colors uppercase tracking-wider"
+            >
+                <Layers size={10} className="text-blue-500" />
+                <span>Context: {summaryParts.join(', ')}</span>
+                {isOpen ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+            </button>
+
+            {isOpen && (
+                <div className="w-full mt-2 space-y-2 animate-in slide-in-from-top-1 duration-200">
+                    {/* Citations */}
+                    {hasCitations && (
+                        <div className="flex flex-col items-end gap-1">
+                            {allCitations.map((c: any, i: number) => (
+                                <div key={i} className="bg-muted border border-border text-muted-foreground text-[10px] px-2 py-1 rounded-xl rounded-tr-sm max-w-[200px] block italic" title={c.text}>
+                                    <div className="truncate">
+                                        <Quote size={8} className="inline mr-1 text-primary" />
+                                        "{c.text}"
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* References */}
+                    {hasReferences && (
+                        <div className="flex flex-wrap justify-end gap-1">
+                            {references.map((r: any, i: number) => {
+                                // Resolve readable name from nodesById if possible
+                                let displayName = r.name || r.type;
+                                if (r.type === 'node' && nodesById.has(r.id)) {
+                                    const node = nodesById.get(r.id);
+                                    if (node) {
+                                        displayName = node.summary || node.userPrompt.slice(0, 30) + '...';
+                                    }
+                                }
+
+                                return (
+                                    <div key={i} className="inline-flex items-center gap-1 bg-blue-50/50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-[10px] px-2 py-0.5 rounded-full" title={displayName}>
+                                        <BookmarkCheck size={8} />
+                                        <span className="max-w-[150px] truncate">{displayName}</span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
 type StreamChunk = {
     key: string;
     text: string;
@@ -73,20 +144,21 @@ type StreamChunk = {
 
 export function ChatInterface() {
     const router = useRouter();
-    const { 
-        activeNodeId, 
-        switchNode, 
-        nodesById, 
-        addNode, 
-        updateNode, 
-        triggerGraphRefresh, 
-        triggerFolderRefresh, 
-        activeFolderId, 
-        contextItems, 
-        toggleContextItem 
+    const {
+        activeNodeId,
+        switchNode,
+        nodesById,
+        addNode,
+        updateNode,
+        triggerGraphRefresh,
+        triggerFolderRefresh,
+        activeFolderId,
+        contextItems,
+        toggleContextItem,
+        draftInput,
+        setDraftInput
     } = useWorkspace();
-    
-    const [inputText, setInputText] = useState('');
+
     const [sending, setSending] = useState(false);
     const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash');
     const [availableModels, setAvailableModels] = useState<{ name: string, displayName: string }[]>([]);
@@ -157,7 +229,7 @@ export function ChatInterface() {
             textareaRef.current.style.height = 'auto';
             textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
         }
-    }, [inputText]);
+    }, [draftInput]);
 
     // Fetch available models on mount
     useEffect(() => {
@@ -236,15 +308,15 @@ export function ChatInterface() {
     }, [messages, sending]);
 
     const handleSend = async () => {
-        if (!inputText.trim()) return;
+        if (!draftInput.trim()) return;
         setSending(true);
 
-        const userPrompt = inputText;
-        setInputText(''); // Clear input immediately
+        const userPrompt = draftInput;
+        setDraftInput(''); // Clear input immediately
 
         const activeMessage = messages.length > 0 ? messages[messages.length - 1] : null;
         let parentId = activeMessage?.id || null;
-        
+
         // Prevent parenting to a temp node if possible, though strict usage shouldn't happen here
         // as we replace temp IDs. But just in case:
         if (parentId?.startsWith('temp-')) {
@@ -257,25 +329,25 @@ export function ChatInterface() {
         const optimisticNode: Node = {
             id: tempId,
             userPrompt: userPrompt,
-            aiResponse: '', 
+            aiResponse: '',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             parentId: parentId,
             folderId: activeMessage?.folderId || activeFolderId,
             modelMetadata: { model: selectedModel },
             citations: activeCitations,
-            references: contextItems, 
+            references: contextItems,
             summary: null
         } as any;
 
         addNode(optimisticNode);
         switchNode(tempId);
-        setActiveCitations([]); 
+        setActiveCitations([]);
 
         try {
             // Resolve Context Items to Node IDs
             const referencedNodeIds = new Set<string>();
-            
+
             for (const item of contextItems) {
                 if (item.type === 'folder') {
                     try {
@@ -294,7 +366,7 @@ export function ChatInterface() {
 
             const res = await fetch('/api/nodes', {
                 method: 'POST',
-                headers: { 
+                headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
@@ -324,31 +396,31 @@ export function ChatInterface() {
                 while (true) {
                     const { done, value } = await reader.read();
                     if (done) break;
-                    
+
                     const chunk = decoder.decode(value);
                     const lines = chunk.split('\n\n');
-                    
+
                     for (const line of lines) {
                         if (line.startsWith('data: ')) {
                             try {
                                 const data = JSON.parse(line.substring(6));
                                 if (data.chunk) {
                                     aiResponse += data.chunk;
-                                    
+
                                     // Update the optimistic node (tempId)
                                     // AND if we already have the real ID, update that too or switch?
                                     // Actually, let's keep updating the temp node until we are done, 
                                     // OR if we have the real ID, we should swap.
-                                    
+
                                     if (realNodeId) {
-                                         updateNode(realNodeId, { aiResponse });
+                                        updateNode(realNodeId, { aiResponse });
                                     } else {
-                                         updateNode(tempId, { aiResponse });
+                                        updateNode(tempId, { aiResponse });
                                     }
                                 }
                                 if (data.nodeId) {
                                     realNodeId = data.nodeId;
-                                    
+
                                     // Create the real node, copying state from temp
                                     // We can just add it. The ancestry path will then show BOTH if we aren't careful?
                                     // No, switchNode changes the active path.
@@ -359,10 +431,10 @@ export function ChatInterface() {
                                         aiResponse: aiResponse // Ensure we have latest
                                     };
                                     addNode(realNode);
-                                    
+
                                     // Switch to real node
                                     switchNode(realNodeId);
-                                    
+
                                     // Note: The temp node remains in nodesById but is no longer in the active path
                                     // because the real node's parent is the same.
                                 }
@@ -414,7 +486,7 @@ export function ChatInterface() {
 
     const handleConfirmDelete = async (mode: 'single' | 'subtree') => {
         if (!nodeToDelete) return;
-        
+
         try {
             const res = await fetch(`/api/nodes?id=${nodeToDelete.id}&mode=${mode}`, {
                 method: 'DELETE',
@@ -424,7 +496,7 @@ export function ChatInterface() {
                 if (mode === 'subtree' || activeNodeId === nodeToDelete.id) {
                     switchNode(nodeToDelete.parentId);
                 }
-                
+
                 triggerGraphRefresh();
                 triggerFolderRefresh();
                 setNodeToDelete(null);
@@ -447,9 +519,9 @@ export function ChatInterface() {
     return (
         <div className="h-full flex flex-col bg-background text-foreground relative">
             <SelectionMenu onQuote={handleQuote} />
-            
+
             <div className="flex-1 overflow-y-auto p-4 space-y-4" ref={scrollRef}>
-                { !activeNodeId && messages.length === 0 ? (
+                {!activeNodeId && messages.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
                         <Bot size={48} className="mb-4 opacity-20" />
                         <p>Start a new conversation</p>
@@ -464,193 +536,177 @@ export function ChatInterface() {
 
                         return (
                             <div key={node.id} className="space-y-4 group">
-                            {/* User Message */}
-                            <div className="flex flex-col items-end gap-1 group/user" data-message-id={node.id} data-message-source="user">
-                                {(node as any).citations && (node as any).citations.length > 0 && (
-                                    <div className="mb-1 text-right">
-                                        {(node as any).citations.map((c: any, i: number) => (
-                                            <div key={i} className="inline-block bg-muted border border-border text-muted-foreground text-[10px] px-2 py-1 rounded-full mr-1 max-w-[200px] truncate" title={c.text}>
-                                                <Quote size={8} className="inline mr-1" />
-                                                "{c.text}"
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
+                                {/* User Message */}
+                                <div className="flex flex-col items-end gap-1 group/user" data-message-id={node.id} data-message-source="user">
+                                    <CollapsibleMessageContext
+                                        citations={node.citations || (node.modelMetadata as any)?.citations || []}
+                                        references={(node as any).references}
+                                        nodesById={nodesById}
+                                    />
 
-                                {(node as any).references && (node as any).references.length > 0 && (
-                                    <div className="mb-1 text-right flex flex-wrap justify-end gap-1">
-                                        {(node as any).references.map((r: any, i: number) => (
-                                            <div key={i} className="inline-flex items-center gap-1 bg-blue-50/50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-[10px] px-2 py-0.5 rounded-full">
-                                                <BookmarkCheck size={8} />
-                                                <span className="max-w-[150px] truncate">{r.name || r.type}</span>
-                                            </div>
-                                        ))}
+                                    <div className="bg-muted text-foreground p-3 rounded-2xl rounded-tr-sm max-w-[80%] shadow-sm">
+                                        <div className="prose prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-pre:my-2">
+                                            <ReactMarkdown
+                                                remarkPlugins={[remarkGfm]}
+                                                components={{
+                                                    code: (props) => <CodeBlock {...props} isDark={true} />
+                                                }}
+                                            >
+                                                {node.userPrompt}
+                                            </ReactMarkdown>
+                                        </div>
                                     </div>
-                                )}
-                                
-                                <div className="bg-muted text-foreground p-3 rounded-2xl rounded-tr-sm max-w-[80%] shadow-sm">
-                                    <div className="prose prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-pre:my-2">
-                                        <ReactMarkdown 
-                                            remarkPlugins={[remarkGfm]}
-                                            components={{
-                                                code: (props) => <CodeBlock {...props} isDark={true} />
-                                            }}
+                                    <div className="flex items-center justify-end w-full max-w-[80%] opacity-0 group-hover/user:opacity-100 transition-opacity">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className={cn(
+                                                "h-7 px-2 text-xs gap-1.5",
+                                                copied?.id === node.id && copied?.source === 'user'
+                                                    ? "text-green-600 hover:text-green-700"
+                                                    : "text-muted-foreground hover:text-foreground"
+                                            )}
+                                            onClick={() => copyToClipboard(node.userPrompt || '', node.id, 'user')}
+                                            title="Copy"
+                                            aria-label="Copy"
                                         >
-                                            {node.userPrompt}
-                                        </ReactMarkdown>
+                                            {copied?.id === node.id && copied?.source === 'user' ? (
+                                                <>
+                                                    <Check size={14} className="text-green-600" />
+                                                    Copied
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Copy size={14} />
+                                                    Copy
+                                                </>
+                                            )}
+                                        </Button>
                                     </div>
                                 </div>
-                                <div className="flex items-center justify-end w-full max-w-[80%] opacity-0 group-hover/user:opacity-100 transition-opacity">
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className={cn(
-                                            "h-7 px-2 text-xs gap-1.5",
-                                            copied?.id === node.id && copied?.source === 'user'
-                                                ? "text-green-600 hover:text-green-700"
-                                                : "text-muted-foreground hover:text-foreground"
-                                        )}
-                                        onClick={() => copyToClipboard(node.userPrompt || '', node.id, 'user')}
-                                        title="Copy"
-                                        aria-label="Copy"
-                                    >
-                                        {copied?.id === node.id && copied?.source === 'user' ? (
-                                            <>
-                                                <Check size={14} className="text-green-600" />
-                                                Copied
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Copy size={14} />
-                                                Copy
-                                            </>
-                                        )}
-                                    </Button>
-                                </div>
-                            </div>
 
-                            {/* AI Response */}
-                            {(node.aiResponse || isGenerating) && (
-                                <div className="flex justify-center w-full" data-message-id={node.id} data-message-source="ai">
-                                    <div className="w-full max-w-3xl relative group/ai pr-8">
-                                        {isGenerating && !node.aiResponse ? (
-                                            <div className="text-foreground py-2">
-                                                <div className="space-y-2">
-                                                    <Skeleton className="h-4 w-[90%] bg-muted-foreground/20" />
-                                                    <Skeleton className="h-4 w-[75%] bg-muted-foreground/20" />
-                                                    <Skeleton className="h-4 w-[50%] bg-muted-foreground/20" />
+                                {/* AI Response */}
+                                {(node.aiResponse || isGenerating) && (
+                                    <div className="flex justify-center w-full" data-message-id={node.id} data-message-source="ai">
+                                        <div className="w-full max-w-3xl relative group/ai pr-8">
+                                            {isGenerating && !node.aiResponse ? (
+                                                <div className="text-foreground py-2">
+                                                    <div className="space-y-2">
+                                                        <Skeleton className="h-4 w-[90%] bg-muted-foreground/20" />
+                                                        <Skeleton className="h-4 w-[75%] bg-muted-foreground/20" />
+                                                        <Skeleton className="h-4 w-[50%] bg-muted-foreground/20" />
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ) : (
-                                            <div className="text-foreground py-2">
-                                                <div className="mb-2 text-xs text-muted-foreground font-semibold uppercase">
-                                                    {node.modelMetadata?.model || 'AI'}
-                                                </div>
-                                                {isGenerating ? (
-                                                    <div className="text-sm leading-6 whitespace-pre-wrap">
-                                                        {(streamChunksByNodeId[node.id] || []).map((c) => (
-                                                            <span
-                                                                key={c.key}
-                                                                className={cn(c.animate ? 'animate-in fade-in duration-200' : '')}
+                                            ) : (
+                                                <div className="text-foreground py-2">
+                                                    <div className="mb-2 text-xs text-muted-foreground font-semibold uppercase">
+                                                        {node.modelMetadata?.model || 'AI'}
+                                                    </div>
+                                                    {isGenerating ? (
+                                                        <div className="text-sm leading-6 whitespace-pre-wrap">
+                                                            {(streamChunksByNodeId[node.id] || []).map((c) => (
+                                                                <span
+                                                                    key={c.key}
+                                                                    className={cn(c.animate ? 'animate-in fade-in duration-200' : '')}
+                                                                >
+                                                                    {c.text}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="prose dark:prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-pre:my-2">
+                                                            <ReactMarkdown
+                                                                remarkPlugins={[remarkGfm]}
+                                                                components={{
+                                                                    code: (props) => <CodeBlock {...props} isDark={true} />
+                                                                }}
                                                             >
-                                                                {c.text}
-                                                            </span>
-                                                        ))}
-                                                    </div>
-                                                ) : (
-                                                    <div className="prose dark:prose-invert prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-pre:my-2">
-                                                        <ReactMarkdown 
-                                                            remarkPlugins={[remarkGfm]}
-                                                            components={{
-                                                                code: (props) => <CodeBlock {...props} isDark={true} />
-                                                            }}
+                                                                {node.aiResponse || ''}
+                                                            </ReactMarkdown>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                            {!node.id.startsWith('temp-') && !isGenerating && (
+                                                <div className="flex items-center gap-2 mt-2 opacity-0 group-hover/ai:opacity-100 transition-opacity">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className={cn(
+                                                            "h-7 px-2 text-xs gap-1.5",
+                                                            copied?.id === node.id && copied?.source === 'ai'
+                                                                ? "text-green-600 hover:text-green-700"
+                                                                : "text-muted-foreground hover:text-foreground"
+                                                        )}
+                                                        onClick={() => copyToClipboard(node.aiResponse || '', node.id, 'ai')}
+                                                        title="Copy"
+                                                    >
+                                                        {copied?.id === node.id && copied?.source === 'ai' ? (
+                                                            <>
+                                                                <Check size={14} className="text-green-600" />
+                                                                Copied
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <Copy size={14} />
+                                                                Copy
+                                                            </>
+                                                        )}
+                                                    </Button>
+                                                    {childCount > 0 && (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground gap-1.5"
+                                                            onClick={() => handleBranch(node.id)}
+                                                            title="Branch from here"
                                                         >
-                                                            {node.aiResponse || ''}
-                                                        </ReactMarkdown>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
-                                        {!node.id.startsWith('temp-') && !isGenerating && (
-                                            <div className="flex items-center gap-2 mt-2 opacity-0 group-hover/ai:opacity-100 transition-opacity">
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    className={cn(
-                                                        "h-7 px-2 text-xs gap-1.5",
-                                                        copied?.id === node.id && copied?.source === 'ai'
-                                                            ? "text-green-600 hover:text-green-700"
-                                                            : "text-muted-foreground hover:text-foreground"
+                                                            <GitBranch size={14} />
+                                                            Branch
+                                                        </Button>
                                                     )}
-                                                    onClick={() => copyToClipboard(node.aiResponse || '', node.id, 'ai')}
-                                                    title="Copy"
-                                                >
-                                                    {copied?.id === node.id && copied?.source === 'ai' ? (
-                                                        <>
-                                                            <Check size={14} className="text-green-600" />
-                                                            Copied
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <Copy size={14} />
-                                                            Copy
-                                                        </>
-                                                    )}
-                                                </Button>
-                                                {childCount > 0 && (
-                                                    <Button 
-                                                        variant="ghost" 
+                                                    <Button
+                                                        variant="ghost"
                                                         size="sm"
                                                         className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground gap-1.5"
-                                                        onClick={() => handleBranch(node.id)}
-                                                        title="Branch from here"
+                                                        onClick={() => toggleContextItem({ id: node.id, type: 'node', name: (node.summary || node.userPrompt).slice(0, 30) + '...' })}
+                                                        title={contextItems.some(i => i.id === node.id) ? "Remove from Context" : "Add to Context"}
                                                     >
-                                                        <GitBranch size={14} />
-                                                        Branch
+                                                        {contextItems.some(i => i.id === node.id) ? (
+                                                            <BookmarkCheck size={14} className="text-blue-500" />
+                                                        ) : (
+                                                            <Bookmark size={14} />
+                                                        )}
+                                                        Context
                                                     </Button>
-                                                )}
-                                                <Button 
-                                                    variant="ghost" 
-                                                    size="sm"
-                                                    className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground gap-1.5"
-                                                    onClick={() => toggleContextItem({ id: node.id, type: 'node', name: (node.summary || node.userPrompt).slice(0, 30) + '...' })}
-                                                    title={contextItems.some(i => i.id === node.id) ? "Remove from Context" : "Add to Context"}
-                                                >
-                                                    {contextItems.some(i => i.id === node.id) ? (
-                                                        <BookmarkCheck size={14} className="text-blue-500" />
-                                                    ) : (
-                                                        <Bookmark size={14} />
+                                                    {node.parentId && (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground gap-1.5"
+                                                            onClick={() => handleCutToNewChat(node.id)}
+                                                            title="Cut to new chat"
+                                                        >
+                                                            <Scissors size={14} />
+                                                            Cut
+                                                        </Button>
                                                     )}
-                                                    Context
-                                                </Button>
-                                                {node.parentId && (
-                                                    <Button 
-                                                        variant="ghost" 
+                                                    <Button
+                                                        variant="ghost"
                                                         size="sm"
-                                                        className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground gap-1.5"
-                                                        onClick={() => handleCutToNewChat(node.id)}
-                                                        title="Cut to new chat"
+                                                        className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive gap-1.5"
+                                                        onClick={() => handleDeleteClick(node.id, node.parentId)}
+                                                        title="Delete message"
                                                     >
-                                                        <Scissors size={14} />
-                                                        Cut
+                                                        <Trash2 size={14} />
+                                                        Delete
                                                     </Button>
-                                                )}
-                                                <Button 
-                                                    variant="ghost" 
-                                                    size="sm"
-                                                    className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive gap-1.5"
-                                                    onClick={() => handleDeleteClick(node.id, node.parentId)}
-                                                    title="Delete message"
-                                                >
-                                                    <Trash2 size={14} />
-                                                    Delete
-                                                </Button>
-                                            </div>
-                                        )}
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
-                            )}
-                        </div>
+                                )}
+                            </div>
                         );
                     })
                 )}
@@ -659,12 +715,12 @@ export function ChatInterface() {
             <div className="bg-background p-4 pb-6">
                 <div className="max-w-3xl mx-auto w-full space-y-3">
                     <CitationsDisplay citations={activeCitations} onRemove={handleRemoveCitation} />
-                    
+
                     {contextItems.length > 0 && (
-                         <div className="flex flex-wrap gap-2 mb-2">
+                        <div className="flex flex-wrap gap-2 mb-2">
                             {contextItems.map(item => (
-                                <div 
-                                    key={`${item.type}-${item.id}`} 
+                                <div
+                                    key={`${item.type}-${item.id}`}
                                     className="flex items-center gap-1 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-full px-2 py-1 text-xs text-blue-700 dark:text-blue-300 shadow-sm animate-in fade-in zoom-in duration-200 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/50"
                                     onClick={() => {
                                         if (item.type === 'node' || item.type === 'chat') {
@@ -674,7 +730,7 @@ export function ChatInterface() {
                                 >
                                     <BookmarkCheck size={12} />
                                     <span className="max-w-[150px] truncate font-medium">{item.name || item.type}</span>
-                                    <button 
+                                    <button
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             toggleContextItem(item);
@@ -694,8 +750,8 @@ export function ChatInterface() {
                             ref={textareaRef}
                             className="w-full bg-transparent border-none focus:outline-none focus:ring-0 resize-none min-h-[48px] max-h-[200px] px-2 py-1 text-foreground placeholder:text-muted-foreground text-base"
                             placeholder="Ask anything"
-                            value={inputText}
-                            onChange={(e) => setInputText(e.target.value)}
+                            value={draftInput}
+                            onChange={(e) => setDraftInput(e.target.value)}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter' && !e.shiftKey) {
                                     e.preventDefault();
@@ -705,7 +761,7 @@ export function ChatInterface() {
                             disabled={sending}
                             rows={1}
                         />
-                        
+
                         <div className="flex justify-end items-center mt-2 px-1">
                             <div className="flex items-center gap-2">
                                 {!mounted ? (
@@ -730,14 +786,14 @@ export function ChatInterface() {
                                         </SelectContent>
                                     </Select>
                                 )}
-                                
-                                <Button 
-                                    onClick={handleSend} 
-                                    disabled={sending || !inputText.trim()} 
+
+                                <Button
+                                    onClick={handleSend}
+                                    disabled={sending || !draftInput.trim()}
                                     size="icon"
                                     className={cn(
                                         "h-9 w-9 rounded-full transition-all",
-                                        inputText.trim() ? "bg-primary text-primary-foreground" : "bg-muted-foreground/20 text-muted-foreground"
+                                        draftInput.trim() ? "bg-primary text-primary-foreground" : "bg-muted-foreground/20 text-muted-foreground"
                                     )}
                                 >
                                     {sending ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
@@ -747,7 +803,7 @@ export function ChatInterface() {
                     </div>
                 </div>
             </div>
-            
+
             <Dialog open={!!nodeToDelete} onOpenChange={(open) => !open && setNodeToDelete(null)}>
                 <DialogContent>
                     <DialogHeader>

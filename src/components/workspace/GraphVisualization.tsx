@@ -12,15 +12,16 @@ import ReactFlow, {
     Handle,
     Position,
     MarkerType,
+    Connection,
     useViewport,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import dagre from 'dagre';
 import { useWorkspace } from '@/context/WorkspaceContext';
-import { 
-    GitBranch, Bookmark, BookmarkCheck, Scissors, Trash2, 
+import {
+    GitBranch, Bookmark, BookmarkCheck, Scissors, Trash2,
     CheckCircle, Lightbulb, HelpCircle, AlertTriangle, ArrowRightCircle,
-    Link as LinkIcon, Minimize2, Maximize2, ChevronRight
+    Link as LinkIcon, Minimize2, Maximize2, ChevronRight, Plus, Quote
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -49,11 +50,11 @@ const StateIcon = ({ type }: { type?: string }) => {
 // Custom Node Component
 const CustomNode = React.memo(({ data, id }: { data: any, id: string }) => {
     const { zoom } = useViewport();
-    
+
     // Handle Collapsed Placeholder
     if (data.isCollapsedPlaceholder) {
         return (
-             <div 
+            <div
                 className="group/node relative px-3 py-2 shadow-sm rounded-md border border-dashed border-primary/50 bg-primary/5 w-[180px] text-xs flex items-center gap-2 cursor-pointer hover:bg-primary/10 transition-colors"
                 onClick={(e) => { e.stopPropagation(); data.onExpand(); }}
             >
@@ -64,26 +65,45 @@ const CustomNode = React.memo(({ data, id }: { data: any, id: string }) => {
         );
     }
 
+    // Handle Draft Node
+    if (data.isDraft) {
+        return (
+            <div className="group/node relative px-4 py-2 shadow-sm rounded-md border-2 border-dashed border-muted-foreground/30 w-[220px] bg-muted/10 flex items-center justify-center h-[80px] hover:bg-muted/20 transition-colors">
+                <Handle type="target" position={Position.Top} className="!bg-muted-foreground/30 w-16" />
+                <div className="flex flex-col items-center gap-1 text-muted-foreground">
+                    <div className="flex items-center gap-1.5">
+                        <Plus size={14} />
+                        <span className="text-xs font-medium uppercase tracking-wider">New Message</span>
+                    </div>
+                    {data.draftText ? (
+                        <span className="text-[10px] italic opacity-90 line-clamp-2 px-2 text-center text-foreground">{data.draftText}</span>
+                    ) : (
+                        <span className="text-[10px] italic opacity-70">Drag here to reference</span>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
     const isReference = data.isReference;
     const isHovered = data.isHovered;
     const isActive = data.isActive;
     const isCollapsed = data.isCollapsed;
 
     const showReference = isHovered && isActive && (isReference || (data.references && data.references.length > 0));
-    
+
     // Clean label
     const cleanLabel = data.label.replace(/^(User:|AI:)\s*/, '');
 
     return (
-        <div className={`group/node relative px-4 py-2 shadow-md rounded-md border-2 w-[220px] bg-card transition-all duration-200 ${
-            isActive 
-                ? 'border-primary ring-2 ring-ring z-20' 
-                : isReference
-                    ? 'border-dashed border-muted-foreground/50 opacity-80 bg-muted/20'
-                    : 'border-border hover:border-primary/50 z-10'
-        }`}>
+        <div className={`group/node relative px-4 py-2 shadow-md rounded-md border-2 w-[220px] bg-card transition-all duration-200 ${isActive
+            ? 'border-primary ring-2 ring-ring z-20'
+            : isReference
+                ? 'border-dashed border-muted-foreground/50 opacity-80 bg-muted/20'
+                : 'border-border hover:border-primary/50 z-10'
+            }`}>
             <Handle type="target" position={Position.Top} className={`w-16 ${isReference ? '!bg-muted-foreground/50' : '!bg-muted'}`} />
-            
+
             {/* Header: Classification + Label */}
             <div className="flex items-start gap-2">
                 {(data.classification) && (
@@ -109,10 +129,10 @@ const CustomNode = React.memo(({ data, id }: { data: any, id: string }) => {
                             ))}
                         </div>
                     )}
-                    
+
                     {/* Bullets */}
                     {data.previewBullets && data.previewBullets.length > 0 && (
-                        <div className="space-y-1">
+                        <div className="space-y-1 mb-2">
                             {data.previewBullets.map((b: string, i: number) => (
                                 <div key={i} className="text-[10px] text-muted-foreground flex items-start gap-1">
                                     <span className="mt-1 block h-1 w-1 rounded-full bg-muted-foreground/50 shrink-0" />
@@ -121,9 +141,21 @@ const CustomNode = React.memo(({ data, id }: { data: any, id: string }) => {
                             ))}
                         </div>
                     )}
+
+                    {/* Quotes/Citations */}
+                    {data.modelMetadata?.citations && data.modelMetadata.citations.length > 0 && (
+                        <div className="space-y-1 border-t border-border pt-2">
+                            {data.modelMetadata.citations.map((c: any, i: number) => (
+                                <div key={i} className="text-[10px] text-muted-foreground flex items-start gap-1 italic">
+                                    <Quote size={8} className="mt-0.5 shrink-0 text-primary" />
+                                    <span className="line-clamp-3">"{c.text}"</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
-            
+
             {/* Reference Indicator */}
             {showReference && (
                 <div className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground italic">
@@ -138,19 +170,19 @@ const CustomNode = React.memo(({ data, id }: { data: any, id: string }) => {
                     {/* Collapse Toggle */}
                     {data.childrenCount > 0 && (
                         <Button
-                             variant="ghost"
-                             size="icon"
-                             className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                             onClick={(e) => { e.stopPropagation(); data.onToggleCollapse(id); }}
-                             title={isCollapsed ? "Expand" : "Collapse Branch"}
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                            onClick={(e) => { e.stopPropagation(); data.onToggleCollapse(id); }}
+                            title={isCollapsed ? "Expand" : "Collapse Branch"}
                         >
                             {isCollapsed ? <Maximize2 size={12} /> : <Minimize2 size={12} />}
                         </Button>
                     )}
 
                     {data.childrenCount > 0 && (
-                        <Button 
-                            variant="ghost" 
+                        <Button
+                            variant="ghost"
                             size="icon"
                             className="h-6 w-6 text-muted-foreground hover:text-foreground"
                             onClick={(e) => { e.stopPropagation(); data.onBranch(id); }}
@@ -159,13 +191,13 @@ const CustomNode = React.memo(({ data, id }: { data: any, id: string }) => {
                             <GitBranch size={12} />
                         </Button>
                     )}
-                    <Button 
-                        variant="ghost" 
+                    <Button
+                        variant="ghost"
                         size="icon"
                         className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                        onClick={(e) => { 
-                            e.stopPropagation(); 
-                            data.onToggleContext({ id, type: 'node', name: cleanLabel.slice(0, 30) + '...' }); 
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            data.onToggleContext({ id, type: 'node', name: cleanLabel.slice(0, 30) + '...' });
                         }}
                         title={data.isContext ? "Remove from Context" : "Add to Context"}
                     >
@@ -175,9 +207,9 @@ const CustomNode = React.memo(({ data, id }: { data: any, id: string }) => {
                             <Bookmark size={12} />
                         )}
                     </Button>
-                     {data.parentId && (
-                        <Button 
-                            variant="ghost" 
+                    {data.parentId && (
+                        <Button
+                            variant="ghost"
                             size="icon"
                             className="h-6 w-6 text-muted-foreground hover:text-foreground"
                             onClick={(e) => { e.stopPropagation(); data.onCut(id); }}
@@ -186,8 +218,8 @@ const CustomNode = React.memo(({ data, id }: { data: any, id: string }) => {
                             <Scissors size={12} />
                         </Button>
                     )}
-                    <Button 
-                        variant="ghost" 
+                    <Button
+                        variant="ghost"
                         size="icon"
                         className="h-6 w-6 text-muted-foreground hover:text-destructive"
                         onClick={(e) => { e.stopPropagation(); data.onDelete(id, data.parentId); }}
@@ -248,22 +280,23 @@ const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = 'TB', off
         return node;
     });
 
-    return { 
-        nodes: layoutedNodes, 
+    return {
+        nodes: layoutedNodes,
         edges,
         bounds: { width: maxX - minX, height: maxY - minY, minX, minY, maxX, maxY }
     };
 };
 
 export function GraphVisualization() {
-    const { 
-        activeNodeId, 
-        switchNode, 
+    const {
+        activeNodeId,
+        switchNode,
         nodesById,
         triggerGraphRefresh,
         triggerFolderRefresh,
-        contextItems, 
-        toggleContextItem 
+        contextItems,
+        toggleContextItem,
+        draftInput
     } = useWorkspace();
     const [nodes, setNodes, onNodesChange] = useNodesState([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -278,7 +311,7 @@ export function GraphVisualization() {
             if (stored) {
                 setCollapsedNodeIds(new Set(JSON.parse(stored)));
             }
-        } catch (e) {}
+        } catch (e) { }
     }, []);
 
     // Action Handlers
@@ -327,7 +360,7 @@ export function GraphVisualization() {
 
     const handleConfirmDelete = async (mode: 'single' | 'subtree') => {
         if (!nodeToDelete) return;
-        
+
         try {
             const res = await fetch(`/api/nodes?id=${nodeToDelete.id}&mode=${mode}`, {
                 method: 'DELETE',
@@ -337,7 +370,7 @@ export function GraphVisualization() {
                 if (mode === 'subtree' || activeNodeId === nodeToDelete.id) {
                     switchNode(nodeToDelete.parentId);
                 }
-                
+
                 triggerGraphRefresh();
                 triggerFolderRefresh();
                 setNodeToDelete(null);
@@ -349,48 +382,77 @@ export function GraphVisualization() {
         }
     };
 
+    const onConnect = useCallback((params: Connection) => {
+        if (params.target === 'draft-node') {
+            // Add params.source to context
+            const sourceNode = nodesById.get(params.source || '') || nodes.find(n => n.id === params.source)?.data;
+
+            // If not in nodesById, might be a context node provided in 'nodes' array but we need its details
+            // Actually, context items are already references, but if user drags from a context tree node to draft node...
+
+            if (sourceNode) {
+                // Check if it's a real node
+                toggleContextItem({
+                    id: params.source || '',
+                    type: 'node',
+                    name: (sourceNode.summary || sourceNode.userPrompt || 'Reference').slice(0, 30) + '...'
+                });
+            } else {
+                // Try to find in nodes array (e.g. context tree nodes)
+                const nodeInGraph = nodes.find(n => n.id === params.source);
+                if (nodeInGraph) {
+                    toggleContextItem({
+                        id: params.source || '',
+                        type: 'node',
+                        name: (nodeInGraph.data.label || 'Reference').slice(0, 30) + '...'
+                    });
+                }
+            }
+        }
+    }, [nodesById, nodes, toggleContextItem]);
+
     const buildGraph = useCallback(async () => {
         let allNodes: Node[] = [];
         let allEdges: Edge[] = [];
         let currentYOffset = 0;
-        
+
         // 1. Build Main Active Graph from Memory
         const activeGraphNodes = Array.from(nodesById.values());
-        
+
         if (activeGraphNodes.length > 0) {
             const childrenCounts = getChildrenCounts(nodesById);
-            
+
             // --- Subtree Collapsing Logic ---
             const hiddenNodeIds = new Set<string>();
             const collapsedPlaceholders: Node[] = [];
 
             activeGraphNodes.forEach(node => {
                 if (collapsedNodeIds.has(node.id)) {
-                     // If node is already hidden, we don't process it (it's inside another collapsed tree)
-                     if (hiddenNodeIds.has(node.id)) return;
+                    // If node is already hidden, we don't process it (it's inside another collapsed tree)
+                    if (hiddenNodeIds.has(node.id)) return;
 
-                     const descendants = getDescendants(nodesById, node.id);
-                     descendants.forEach(id => hiddenNodeIds.add(id));
-                     
-                     // Add placeholder
-                     if (descendants.size > 0) {
-                         collapsedPlaceholders.push({
-                             id: `collapsed-${node.id}`,
-                             type: 'custom', 
-                             position: { x: 0, y: 0 },
-                             data: {
-                                 label: `${descendants.size} turns`, // Short label for placeholder
-                                 isCollapsedPlaceholder: true,
-                                 parentId: node.id,
-                                 onExpand: () => toggleCollapse(node.id),
-                             }
-                         });
-                     }
+                    const descendants = getDescendants(nodesById, node.id);
+                    descendants.forEach(id => hiddenNodeIds.add(id));
+
+                    // Add placeholder
+                    if (descendants.size > 0) {
+                        collapsedPlaceholders.push({
+                            id: `collapsed-${node.id}`,
+                            type: 'custom',
+                            position: { x: 0, y: 0 },
+                            data: {
+                                label: `${descendants.size} turns`, // Short label for placeholder
+                                isCollapsedPlaceholder: true,
+                                parentId: node.id,
+                                onExpand: () => toggleCollapse(node.id),
+                            }
+                        });
+                    }
                 }
             });
 
             const visibleNodes = activeGraphNodes.filter(n => !hiddenNodeIds.has(n.id));
-            
+
             const flowNodes: Node[] = [
                 ...visibleNodes.map((n: any) => ({
                     id: n.id,
@@ -412,7 +474,8 @@ export function GraphVisualization() {
                         onToggleContext: toggleContextItem,
                         onCut: handleCutToNewChat,
                         onDelete: handleDeleteClick,
-                        onToggleCollapse: toggleCollapse
+                        onToggleCollapse: toggleCollapse,
+                        modelMetadata: n.modelMetadata
                     },
                 })),
                 ...collapsedPlaceholders.map(p => ({
@@ -425,6 +488,20 @@ export function GraphVisualization() {
                     }
                 }))
             ];
+
+            // Add Draft Node if active node exists and is visible OR we have draft text
+            if ((activeNodeId && !hiddenNodeIds.has(activeNodeId)) || draftInput) {
+                flowNodes.push({
+                    id: 'draft-node',
+                    type: 'custom',
+                    position: { x: 0, y: 0 },
+                    data: {
+                        isDraft: true,
+                        parentId: activeNodeId,
+                        draftText: draftInput
+                    }
+                });
+            }
 
             const flowEdges: Edge[] = [
                 // Standard Edges
@@ -448,10 +525,22 @@ export function GraphVisualization() {
                 }))
             ];
 
+            // Edge to Draft Node
+            if (activeNodeId && !hiddenNodeIds.has(activeNodeId)) {
+                flowEdges.push({
+                    id: `draft-edge-${activeNodeId}`,
+                    source: activeNodeId,
+                    target: 'draft-node',
+                    type: 'smoothstep',
+                    markerEnd: { type: MarkerType.ArrowClosed },
+                    style: { strokeDasharray: '5,5', opacity: 0.3 }
+                });
+            }
+
             const layouted = getLayoutedElements(flowNodes, flowEdges, 'TB', { x: 0, y: 0 });
             allNodes = [...allNodes, ...layouted.nodes];
             allEdges = [...allEdges, ...layouted.edges];
-            
+
             if (layouted.bounds.height > 0) {
                 currentYOffset += layouted.bounds.height + 100; // Spacing
             }
@@ -469,17 +558,24 @@ export function GraphVisualization() {
                     if (res.ok) {
                         const folderNodes = await res.json();
                         folderNodes.forEach((n: any) => {
-                             if (!n.parentId) {
-                                 contextRoots.add(n.id);
-                             }
+                            if (!n.parentId) {
+                                contextRoots.add(n.id);
+                            }
                         });
                     }
-                } catch (e) {}
+                } catch (e) { }
             } else {
                 const isInActiveGraph = nodesById.has(refId);
+                // Even if it IS in the active graph, if it's a context item, we want to treat it as a reference source?
+                // But logic below adds it to referencedNodeIds ONLY if NOT in active graph.
+
+                // If it IS in the active graph, we don't need to fetch it (referencedNodeIds), 
+                // BUT we still need to draw the edge if sourceNodeId is provided.
+
                 if (!isInActiveGraph) {
                     referencedNodeIds.add(refId);
                 }
+
                 if (sourceNodeId) {
                     referenceEdges.push({ sourceId: sourceNodeId, targetId: refId });
                 }
@@ -487,28 +583,47 @@ export function GraphVisualization() {
         };
 
         // a) UI Context Items
-        await Promise.all(contextItems.map(item => addReference(item.id, item.type, activeNodeId || undefined)));
+        // We only want to ensure these nodes are loaded and visible, but NOT draw an edge from the active node to them yet.
+        // The edge should go from the Draft Node to these items.
+        await Promise.all(contextItems.map(item => addReference(item.id, item.type, undefined)));
 
         // b) & c) References in Active Graph History
         await Promise.all(activeGraphNodes.map(async (node) => {
+            // Context references
             if (node.references && Array.isArray(node.references)) {
-                await Promise.all(node.references.map((ref: any) => 
+                await Promise.all(node.references.map((ref: any) =>
                     addReference(ref.id, ref.type, node.id)
                 ));
             }
+
+            // Citation references (Quotes)
+            if (node.modelMetadata?.citations && Array.isArray(node.modelMetadata.citations)) {
+                await Promise.all(node.modelMetadata.citations.map((cite: any) => {
+                    if (cite.nodeId) {
+                        return addReference(cite.nodeId, 'node', node.id);
+                    }
+                }));
+            }
         }));
+
+        // Also add references for the draft node
+        contextItems.forEach(item => {
+            // Link context items to the draft node (Context -> Draft)
+            // This matches the "drag to" visual and information flow
+            referenceEdges.push({ sourceId: item.id, targetId: 'draft-node' });
+        });
 
         // Fetch and layout full context trees
         const contextGraphPromises = Array.from(contextRoots).map(async (rootId) => {
-             try {
-                 const res = await fetch(`/api/graph/${rootId}`);
-                 if (res.ok) {
-                     return { rootId, treeData: await res.json() };
-                 }
-             } catch (e) {
-                 console.error(`Error fetching context graph ${rootId}`, e);
-             }
-             return null;
+            try {
+                const res = await fetch(`/api/graph/${rootId}`);
+                if (res.ok) {
+                    return { rootId, treeData: await res.json() };
+                }
+            } catch (e) {
+                console.error(`Error fetching context graph ${rootId}`, e);
+            }
+            return null;
         });
 
         const contextResults = await Promise.all(contextGraphPromises);
@@ -516,14 +631,14 @@ export function GraphVisualization() {
         for (const result of contextResults) {
             if (!result) continue;
             const { rootId, treeData } = result;
-            
+
             // Collapsing logic for context trees? 
             // For now, let's keep them fully expanded as they are usually references.
             // Or apply same logic? Since we use global `collapsedNodeIds`, it applies everywhere.
-            
+
             // TODO: Apply collapse to context trees (Same logic as above)
             // For brevity, skipping collapse in context trees for now to avoid duplication complexity
-            
+
             const flowNodes: Node[] = treeData.map((n: any) => ({
                 id: n.id,
                 type: 'custom',
@@ -535,6 +650,7 @@ export function GraphVisualization() {
                     isReference: true,
                     topics: n.topics,
                     classification: n.classification,
+                    modelMetadata: n.modelMetadata,
                 },
             }));
 
@@ -555,7 +671,7 @@ export function GraphVisualization() {
             allEdges = [...allEdges, ...layouted.edges];
 
             if (layouted.bounds.height > 0) {
-                    currentYOffset += layouted.bounds.height + 50;
+                currentYOffset += layouted.bounds.height + 50;
             }
         }
 
@@ -577,9 +693,9 @@ export function GraphVisualization() {
 
         referencedNodesData.forEach((nodeData, index) => {
             if (!nodeData) return;
-            
+
             const xPosition = index * 250;
-            
+
             allNodes.push({
                 id: nodeData.id,
                 type: 'custom',
@@ -590,10 +706,11 @@ export function GraphVisualization() {
                     isReference: true,
                     topics: nodeData.topics,
                     classification: nodeData.classification,
+                    modelMetadata: nodeData.modelMetadata,
                 },
             });
         });
-        
+
         if (referencedNodeIds.size > 0) {
             currentYOffset += 100;
         }
@@ -601,15 +718,17 @@ export function GraphVisualization() {
         referenceEdges.forEach(({ sourceId, targetId }) => {
             const sourceExists = allNodes.find(n => n.id === sourceId);
             const targetExists = allNodes.find(n => n.id === targetId);
-            
+
             if (sourceExists && targetExists) {
+                const isDraftEdge = sourceId === 'draft-node' || targetId === 'draft-node';
+
                 allEdges.push({
                     id: `ref-${sourceId}-${targetId}`,
                     source: sourceId,
                     target: targetId,
                     type: 'default',
                     animated: true,
-                    hidden: true, // Hidden by default, toggled via hover
+                    hidden: !isDraftEdge,
                     style: { stroke: '#94a3b8', strokeDasharray: '5,5', opacity: 0.6 },
                     label: 'Ref'
                 });
@@ -619,7 +738,7 @@ export function GraphVisualization() {
         setNodes(allNodes);
         setEdges(allEdges);
 
-    }, [nodesById, activeNodeId, contextItems, handleBranch, toggleContextItem, handleCutToNewChat, handleDeleteClick, setNodes, setEdges, collapsedNodeIds, toggleCollapse]);
+    }, [nodesById, activeNodeId, contextItems, handleBranch, toggleContextItem, handleCutToNewChat, handleDeleteClick, setNodes, setEdges, collapsedNodeIds, toggleCollapse, draftInput]);
 
     // Rebuild graph when dependencies change
     useEffect(() => {
@@ -629,27 +748,36 @@ export function GraphVisualization() {
     // Update edge visibility and node hover state
     useEffect(() => {
         setEdges(prevEdges => prevEdges.map(edge => {
-            // If it's a reference edge (starts with ref-)
             if (edge.id.startsWith('ref-')) {
-                // Show if either source or target is hovered or active
-                const isRelevant = 
-                    edge.source === hoveredNodeId || 
-                    edge.target === hoveredNodeId || 
-                    edge.source === activeNodeId || 
-                    edge.target === activeNodeId;
-                
+                const isDraftEdge = edge.source === 'draft-node' || edge.target === 'draft-node';
+                const isRelevant =
+                    edge.source === hoveredNodeId ||
+                    edge.target === hoveredNodeId ||
+                    edge.source === activeNodeId ||
+                    edge.target === activeNodeId ||
+                    isDraftEdge;
+
+                if (edge.hidden === !isRelevant) return edge;
                 return { ...edge, hidden: !isRelevant };
             }
             return edge;
         }));
 
-        setNodes(prevNodes => prevNodes.map(node => ({
-            ...node,
-            data: {
-                ...node.data,
-                isHovered: node.id === hoveredNodeId
-            }
-        })));
+        setNodes(prevNodes => {
+            return prevNodes.map(node => {
+                const isHovered = node.id === hoveredNodeId;
+
+                if (node.data.isHovered === isHovered) return node;
+
+                return {
+                    ...node,
+                    data: {
+                        ...node.data,
+                        isHovered,
+                    }
+                };
+            });
+        });
     }, [hoveredNodeId, activeNodeId, setEdges, setNodes]);
 
     const onNodeClick = (_: React.MouseEvent, node: Node) => {
@@ -658,7 +786,7 @@ export function GraphVisualization() {
         }
     };
 
-    if (!activeNodeId && contextItems.length === 0) {
+    if (!activeNodeId && contextItems.length === 0 && !draftInput) {
         return (
             <div className="h-full bg-background border-l border-border p-4 flex items-center justify-center text-muted-foreground">
                 Select a chat or add contexts to view
@@ -676,13 +804,14 @@ export function GraphVisualization() {
                 onNodeClick={onNodeClick}
                 onNodeMouseEnter={(_, node) => setHoveredNodeId(node.id)}
                 onNodeMouseLeave={() => setHoveredNodeId(null)}
+                onConnect={onConnect}
                 nodeTypes={nodeTypes}
                 fitView
             >
                 <Background />
             </ReactFlow>
 
-             <Dialog open={!!nodeToDelete} onOpenChange={(open) => !open && setNodeToDelete(null)}>
+            <Dialog open={!!nodeToDelete} onOpenChange={(open) => !open && setNodeToDelete(null)}>
                 <DialogContent>
                     <DialogHeader>
                         <DialogTitle>Delete Message</DialogTitle>
