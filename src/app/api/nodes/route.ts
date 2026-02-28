@@ -6,6 +6,7 @@ import { streamModelResponse, detectProvider } from '@/lib/models';
 import { createClient } from '@/lib/supabase/server';
 import { MultiPassOrchestrator } from '@/lib/multiPass/orchestrator';
 import { MultiPassContext } from '@/lib/multiPass/types';
+import { recordBackendMetrics } from '@/lib/observability/telemetry';
 
 // Helper to fetch ancestor chain
 async function getAncestorChain(nodeId: string, userId: string) {
@@ -34,6 +35,7 @@ async function getAncestorChain(nodeId: string, userId: string) {
 }
 
 export async function POST(request: Request) {
+    const requestStartTime = Date.now();
     try {
         const supabase = await createClient();
         const { data: { user } } = await supabase.auth.getUser();
@@ -182,6 +184,7 @@ export async function POST(request: Request) {
         });
 
         // 3. Setup Streaming Response
+        const llmStartTime = Date.now();
         let stream;
         let multiPassMetadata: any = null;
 
@@ -208,20 +211,38 @@ export async function POST(request: Request) {
         // Return a streaming response immediately
         return new Response(new ReadableStream({
             async start(controller) {
+                const streamStartTime = Date.now();
+                const backendProcessingTime = streamStartTime - requestStartTime;
+
                 let fullAiResponse = "";
                 
                 // Send initial node ID to client so it can update the temp ID
-                const initialData = JSON.stringify({ nodeId: node.id });
+                const initialData = JSON.stringify({ nodeId: node.id, backendProcessingTime });
                 controller.enqueue(encoder.encode(`data: ${initialData}\n\n`));
+
+                let firstTokenTime = 0;
 
                 try {
                     for await (const chunk of stream) {
+                        if (firstTokenTime === 0) {
+                            firstTokenTime = Date.now();
+                        }
                         fullAiResponse += chunk;
                         const data = JSON.stringify({ chunk });
                         controller.enqueue(encoder.encode(`data: ${data}\n\n`));
                     }
                     
                     // Stream finished
+                    const streamEndTime = Date.now();
+                    const llmTtfb = firstTokenTime > 0 ? firstTokenTime - llmStartTime : 0;
+                    const llmTotal = streamEndTime - llmStartTime;
+                    
+                    // Record backend metrics
+                    try {
+                        recordBackendMetrics(backendProcessingTime, llmTtfb, llmTotal);
+                    } catch (metricError) {
+                        console.error("Failed to record backend metrics:", metricError);
+                    }
                     
                     // 4. Compute Display Metadata & Update DB
                     try {
