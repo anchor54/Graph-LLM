@@ -344,6 +344,8 @@ export function ChatInterface() {
         switchNode(tempId);
         setActiveCitations([]);
 
+        const requestStartTime = Date.now();
+
         try {
             // Resolve Context Items to Node IDs
             const referencedNodeIds = new Set<string>();
@@ -391,10 +393,18 @@ export function ChatInterface() {
             const decoder = new TextDecoder();
             let aiResponse = '';
             let realNodeId = '';
+            
+            let firstChunkTime = 0;
+            let backendProcessingTime = 0;
 
             if (reader) {
                 while (true) {
                     const { done, value } = await reader.read();
+                    
+                    if (!done && firstChunkTime === 0) {
+                        firstChunkTime = Date.now();
+                    }
+                    
                     if (done) break;
 
                     const chunk = decoder.decode(value);
@@ -404,6 +414,11 @@ export function ChatInterface() {
                         if (line.startsWith('data: ')) {
                             try {
                                 const data = JSON.parse(line.substring(6));
+                                
+                                if (data.backendProcessingTime) {
+                                    backendProcessingTime = data.backendProcessingTime;
+                                }
+                                
                                 if (data.chunk) {
                                     aiResponse += data.chunk;
 
@@ -444,6 +459,25 @@ export function ChatInterface() {
                         }
                     }
                 }
+                
+                // Metrics Logic
+                const streamEndTime = Date.now();
+                const clientTtfb = firstChunkTime > 0 ? firstChunkTime - requestStartTime : 0;
+                const clientTotalDuration = streamEndTime - requestStartTime;
+                const networkLatency = backendProcessingTime > 0 ? Math.max(0, clientTtfb - backendProcessingTime) : 0;
+                
+                // Log and send
+                console.log('[Metrics]', { clientTtfb, clientTotalDuration, networkLatency, backendProcessingTime });
+                
+                fetch('/api/metrics', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        client_ttfb: clientTtfb,
+                        client_total_duration: clientTotalDuration,
+                        network_latency: networkLatency
+                    })
+                }).catch(err => console.error("Metrics send error:", err));
             }
 
             triggerGraphRefresh(); // Sync fully with DB
