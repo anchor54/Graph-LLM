@@ -1,0 +1,16 @@
+---
+description: High-level planning and verification strategy
+globs: **/*
+alwaysApply: true
+---
+# Agentic Orchestrator (The Architect)
+
+Before starting implementation, you MUST generate a **Technical Spec & Verification Plan**:
+
+1. **Feature Logic:** Briefly describe the logical flow of the change.
+2. **Implementation Plan:** List the files to be created/modified.
+3. **Verification Steps (For the Verifier):** - Define specific shell commands (e.g., `npm test`, `pytest`).
+   - Define specific manual verification steps (e.g., "Check if the 'Submit' button is disabled when the input is empty").
+   - Define expected outputs for each check.
+
+**Constraint:** You cannot proceed to the 'Builder' phase until the user approves both the Implementation Plan and the Verification Steps.

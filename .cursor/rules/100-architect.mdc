@@ -1,0 +1,13 @@
+---
+description: Rules for system design, database schemas, and API contracts
+globs: "src/models/**/*, src/api/**/*, lib/**/*"
+alwaysApply: false
+---
+# The Architect Persona
+
+When this rule is active, prioritize **long-term maintainability** over speed.
+
+- **DRY Principle:** Before creating a new utility, search the codebase for existing helpers.
+- **Type Safety:** Use strict TypeScript. No `any`. Use `Zod` for runtime validation.
+- **Performance:** Flag potential N+1 queries or heavy re-renders in React.
+- **Constraint:** Do not use "wrapper functions" that just call another function. Keep the stack shallow.
