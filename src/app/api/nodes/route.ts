@@ -45,9 +45,12 @@ export async function POST(request: Request) {
         }
 
         const body = await request.json();
-        const { userPrompt, parentId, folderId, modelMetadata, citations, referencedNodeIds, references } = body;
+        const { id: clientId, userPrompt, parentId, folderId, modelMetadata, citations, referencedNodeIds, references } = body;
 
         // Validate required fields
+        if (!clientId) {
+            return NextResponse.json({ error: 'Node ID is required' }, { status: 400 });
+        }
         if (!userPrompt) {
             return NextResponse.json({ error: 'User prompt is required' }, { status: 400 });
         }
@@ -168,6 +171,7 @@ export async function POST(request: Request) {
         
         const node = await prisma.node.create({
             data: {
+                id: clientId,
                 userPrompt,
                 userId: user.id,
                 parentId: parentId || undefined,

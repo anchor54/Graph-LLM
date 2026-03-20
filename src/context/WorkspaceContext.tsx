@@ -15,6 +15,7 @@ interface WorkspaceContextType {
     // Tree State
     nodesById: Map<string, Node>;
     addNode: (node: Node) => void;
+    addNodeAndSwitch: (node: Node) => void;
     updateNode: (id: string, updates: Partial<Node>) => void;
     loadTree: (rootId: string) => Promise<void>;
 
@@ -29,6 +30,7 @@ interface WorkspaceContextType {
     clearNodeError: () => void;
     draftInput: string;
     setDraftInput: (input: string) => void;
+    newChatDraft: string;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
@@ -144,6 +146,7 @@ export function WorkspaceProvider({ children, nodeId }: { children: ReactNode; n
 
         if (!id) {
             setActiveNodeIdState(null);
+            setNodesById(new Map());
             return;
         }
 
@@ -182,6 +185,29 @@ export function WorkspaceProvider({ children, nodeId }: { children: ReactNode; n
             return newMap;
         });
     }, []);
+
+    // Atomically adds a node to the map and sets it as active in the same render,
+    // avoiding the race where switchNode reads a stale nodesById that doesn't yet contain
+    // the node that was just passed to addNode.
+    const addNodeAndSwitch = useCallback((node: Node) => {
+        const id = node.id;
+
+        // Save current draft before leaving
+        const currentKey = activeNodeId || 'root';
+        const currentDraft = draftInputRef.current;
+        setDrafts(prev => ({ ...prev, [currentKey]: currentDraft }));
+
+        // Restore any saved draft for the new node (typically empty for a brand-new node)
+        setDraftInput(drafts[id] || '');
+
+        // Add the node and activate it atomically
+        setNodesById(prev => {
+            const newMap = new Map(prev);
+            newMap.set(id, node);
+            return newMap;
+        });
+        setActiveNodeIdState(id);
+    }, [activeNodeId, drafts]);
 
     const updateNode = useCallback((id: string, updates: Partial<Node>) => {
         setNodesById(prev => {
@@ -225,6 +251,9 @@ export function WorkspaceProvider({ children, nodeId }: { children: ReactNode; n
         setNodeError(null);
     };
 
+    // Always reflects the draft for the new-chat (root) view, even when navigated away
+    const newChatDraft = activeNodeId === null ? draftInput : (drafts['root'] || '');
+
     return (
         <WorkspaceContext.Provider
             value={{
@@ -235,6 +264,7 @@ export function WorkspaceProvider({ children, nodeId }: { children: ReactNode; n
                 switchNode,
                 nodesById,
                 addNode,
+                addNodeAndSwitch,
                 updateNode,
                 loadTree,
                 graphRefreshTrigger,
@@ -247,6 +277,7 @@ export function WorkspaceProvider({ children, nodeId }: { children: ReactNode; n
                 clearNodeError,
                 draftInput,
                 setDraftInput,
+                newChatDraft,
             }}
         >
             {children}

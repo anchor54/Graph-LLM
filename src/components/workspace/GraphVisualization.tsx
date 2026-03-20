@@ -544,27 +544,16 @@ export function GraphVisualization() {
             if (layouted.bounds.height > 0) {
                 currentYOffset += layouted.bounds.height + 100; // Spacing
             }
-        } else {
-            // Build Draft Node
-            const draftOnlyNodes: Node[] = [{
+        } else if (draftInput) {
+            const draftFlowNodes: Node[] = [{
                 id: 'draft-node',
                 type: 'custom',
                 position: { x: 0, y: 0 },
-                data: {
-                    isDraft: true,
-                    parentId: activeNodeId,
-                    draftText: draftInput
-                }
+                data: { isDraft: true, parentId: null, draftText: draftInput }
             }];
-
-            const draftOnlyEdges: Edge[] = [];
-            const layouted = getLayoutedElements(draftOnlyNodes, draftOnlyEdges, 'TB', { x: 0, y: 0 });
+            const layouted = getLayoutedElements(draftFlowNodes, [], 'TB', { x: 0, y: currentYOffset });
             allNodes = [...allNodes, ...layouted.nodes];
             allEdges = [...allEdges, ...layouted.edges];
-
-            if (layouted.bounds.height > 0) {
-                currentYOffset += layouted.bounds.height + 100;
-            }
         }
 
         // 2. Resolve Referenced Nodes

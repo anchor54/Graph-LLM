@@ -149,6 +149,7 @@ export function ChatInterface() {
         switchNode,
         nodesById,
         addNode,
+        addNodeAndSwitch,
         updateNode,
         triggerGraphRefresh,
         triggerFolderRefresh,
@@ -317,17 +318,11 @@ export function ChatInterface() {
         const activeMessage = messages.length > 0 ? messages[messages.length - 1] : null;
         let parentId = activeMessage?.id || null;
 
-        // Prevent parenting to a temp node if possible, though strict usage shouldn't happen here
-        // as we replace temp IDs. But just in case:
-        if (parentId?.startsWith('temp-')) {
-            // Fallback or wait? For now, assume previous flow finished.
-        }
-
-        const tempId = `temp-${Date.now()}`;
+        const nodeId = crypto.randomUUID();
 
         // Optimistically add user message to UI
         const optimisticNode: Node = {
-            id: tempId,
+            id: nodeId,
             userPrompt: userPrompt,
             aiResponse: '',
             createdAt: new Date().toISOString(),
@@ -340,8 +335,7 @@ export function ChatInterface() {
             summary: null
         } as any;
 
-        addNode(optimisticNode);
-        switchNode(tempId);
+        addNodeAndSwitch(optimisticNode);
         setActiveCitations([]);
 
         const requestStartTime = Date.now();
@@ -372,8 +366,9 @@ export function ChatInterface() {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
+                    id: nodeId,
                     userPrompt,
-                    parentId: parentId, // Use the ID we linked the temp node to
+                    parentId: parentId,
                     folderId: optimisticNode.folderId,
                     modelMetadata: { model: selectedModel },
                     citations: optimisticNode.citations,
@@ -421,37 +416,7 @@ export function ChatInterface() {
                                 
                                 if (data.chunk) {
                                     aiResponse += data.chunk;
-
-                                    // Update the optimistic node (tempId)
-                                    // AND if we already have the real ID, update that too or switch?
-                                    // Actually, let's keep updating the temp node until we are done, 
-                                    // OR if we have the real ID, we should swap.
-
-                                    if (realNodeId) {
-                                        updateNode(realNodeId, { aiResponse });
-                                    } else {
-                                        updateNode(tempId, { aiResponse });
-                                    }
-                                }
-                                if (data.nodeId) {
-                                    realNodeId = data.nodeId;
-
-                                    // Create the real node, copying state from temp
-                                    // We can just add it. The ancestry path will then show BOTH if we aren't careful?
-                                    // No, switchNode changes the active path.
-                                    // But if we want to seamless swap:
-                                    const realNode: Node = {
-                                        ...optimisticNode,
-                                        id: realNodeId,
-                                        aiResponse: aiResponse // Ensure we have latest
-                                    };
-                                    addNode(realNode);
-
-                                    // Switch to real node
-                                    switchNode(realNodeId);
-
-                                    // Note: The temp node remains in nodesById but is no longer in the active path
-                                    // because the real node's parent is the same.
+                                    updateNode(nodeId, { aiResponse });
                                 }
                             } catch (e) {
                                 console.error('Error parsing stream chunk', e);
