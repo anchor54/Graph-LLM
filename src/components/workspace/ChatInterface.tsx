@@ -418,6 +418,16 @@ export function ChatInterface() {
                                     aiResponse += data.chunk;
                                     updateNode(nodeId, { aiResponse });
                                 }
+
+                                if (data.displayData) {
+                                    updateNode(nodeId, {
+                                        summary: data.displayData.summary,
+                                        nodeTitle: data.displayData.nodeTitle,
+                                        topics: data.displayData.topics,
+                                        classification: data.displayData.classification,
+                                        previewBullets: data.displayData.previewBullets,
+                                    } as any);
+                                }
                             } catch (e) {
                                 console.error('Error parsing stream chunk', e);
                             }

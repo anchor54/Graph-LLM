@@ -258,6 +258,7 @@ export async function POST(request: Request) {
                                 aiResponse: fullAiResponse,
                                 summary: displayData.summary,
                                 // @ts-ignore: TS stale in editor, fields exist in schema and generated client
+                                nodeTitle: displayData.nodeTitle,
                                 topics: displayData.topics,
                                 classification: displayData.classification,
                                 previewBullets: displayData.previewBullets,
@@ -267,6 +268,18 @@ export async function POST(request: Request) {
                                 } : undefined
                             }
                         });
+
+                        // Send display metadata to client so the graph node title updates immediately
+                        const displayEvent = JSON.stringify({
+                            displayData: {
+                                summary: displayData.summary,
+                                nodeTitle: displayData.nodeTitle,
+                                topics: displayData.topics,
+                                classification: displayData.classification,
+                                previewBullets: displayData.previewBullets,
+                            }
+                        });
+                        controller.enqueue(encoder.encode(`data: ${displayEvent}\n\n`));
                     } catch (updateError: any) {
                         console.error("Failed to update node with display metadata:", updateError);
                         
@@ -282,6 +295,18 @@ export async function POST(request: Request) {
                                 }
                             });
                             console.log("Recovered with fallback update (basic summary only).");
+
+                            // Send fallback summary to client
+                            const fallbackEvent = JSON.stringify({
+                                displayData: {
+                                    summary: fallbackTitle,
+                                    nodeTitle: fallbackTitle,
+                                    topics: [],
+                                    classification: 'insight',
+                                    previewBullets: [],
+                                }
+                            });
+                            controller.enqueue(encoder.encode(`data: ${fallbackEvent}\n\n`));
                         } catch (fallbackError) {
                             console.error("Critical: Failed to update node even with fallback.", fallbackError);
                         }

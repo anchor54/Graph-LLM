@@ -459,7 +459,7 @@ export function GraphVisualization() {
                     type: 'custom',
                     position: { x: 0, y: 0 },
                     data: {
-                        label: n.summary || (n.userPrompt ? `User: ${n.userPrompt}` : `AI: ${n.aiResponse || '...'}`),
+                        label: n.nodeTitle || n.summary || (n.userPrompt ? `User: ${n.userPrompt}` : `AI: ${n.aiResponse || '...'}`),
                         isActive: n.id === activeNodeId,
                         isHovered: false,
                         isCollapsed: collapsedNodeIds.has(n.id),
@@ -654,7 +654,7 @@ export function GraphVisualization() {
                 type: 'custom',
                 position: { x: 0, y: 0 },
                 data: {
-                    label: n.summary || (n.userPrompt ? `User: ${n.userPrompt}` : `AI: ${n.aiResponse || '...'}`),
+                    label: n.nodeTitle || n.summary || (n.userPrompt ? `User: ${n.userPrompt}` : `AI: ${n.aiResponse || '...'}`),
                     isActive: false,
                     isHovered: false,
                     isReference: true,
@@ -711,7 +711,7 @@ export function GraphVisualization() {
                 type: 'custom',
                 position: { x: xPosition, y: currentYOffset },
                 data: {
-                    label: nodeData.summary || (nodeData.userPrompt ? `User: ${nodeData.userPrompt}` : `AI: ${nodeData.aiResponse || '...'}`),
+                    label: nodeData.nodeTitle || nodeData.summary || (nodeData.userPrompt ? `User: ${nodeData.userPrompt}` : `AI: ${nodeData.aiResponse || '...'}`),
                     isActive: false,
                     isReference: true,
                     topics: nodeData.topics,
