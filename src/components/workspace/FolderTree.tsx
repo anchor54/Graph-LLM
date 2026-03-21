@@ -42,12 +42,14 @@ export function FolderTree() {
     const [loading, setLoading] = useState(true);
     const { 
         activeNodeId, 
+        activeFolderId,
         setActiveFolderId, 
         switchNode, 
         nodesById,
         folderRefreshTrigger, 
         graphRefreshTrigger, 
-        triggerFolderRefresh 
+        triggerFolderRefresh,
+        newChatDraft,
     } = useWorkspace();
     const [activeDragItem, setActiveDragItem] = useState<{ type: 'FOLDER' | 'CHAT', id: string, name: string } | null>(null);
     const [activeRootId, setActiveRootId] = useState<string | null>(null);
@@ -240,22 +242,32 @@ export function FolderTree() {
                                     chatsMap={chats}
                                     onSelectChat={handleSelectChat}
                                     activeRootId={activeRootId}
+                                    draftFolderId={activeFolderId}
+                                    newChatDraft={newChatDraft}
                                 />
                             ))}
                         </div>
                     )}
 
                     {/* Chats Section */}
-                    {(chats.get('root') && chats.get('root')!.length > 0) || (folders.length === 0 && (!chats.get('root') || chats.get('root')!.length === 0)) ? (
-                        <div>
-                             {(folders.length > 0 || (chats.get('root') && chats.get('root')!.length > 0)) && (
-                                <h3 className="px-2 text-xs font-semibold text-muted-foreground mb-2">Chats</h3>
-                             )}
-                            {chats.get('root')?.map(chat => (
-                                <DraggableChatItem key={chat.id} node={chat} onSelect={handleSelectChat} activeRootId={activeRootId} />
-                            ))}
-                        </div>
-                    ) : null}
+                    {(() => {
+                        const rootChats = chats.get('root') || [];
+                        const showDraftHere = newChatDraft.trim().length > 0 && activeFolderId === null;
+                        const hasContent = rootChats.length > 0 || showDraftHere;
+                        const showSection = hasContent || (folders.length === 0 && !hasContent);
+                        if (!showSection) return null;
+                        return (
+                            <div>
+                                {(folders.length > 0 || hasContent) && (
+                                    <h3 className="px-2 text-xs font-semibold text-muted-foreground mb-2">Chats</h3>
+                                )}
+                                {showDraftHere && <DraftChatItem />}
+                                {rootChats.map(chat => (
+                                    <DraggableChatItem key={chat.id} node={chat} onSelect={handleSelectChat} activeRootId={activeRootId} />
+                                ))}
+                            </div>
+                        );
+                    })()}
 
                  </RootDroppable>
             </div>
@@ -307,12 +319,16 @@ function FolderItem({
     folder,
     chatsMap,
     onSelectChat,
-    activeRootId
+    activeRootId,
+    draftFolderId,
+    newChatDraft,
 }: {
     folder: Folder,
     chatsMap: Map<string, Node[]>,
     onSelectChat: (id: string) => void,
-    activeRootId: string | null
+    activeRootId: string | null,
+    draftFolderId: string | null,
+    newChatDraft: string,
 }) {
     const { setActiveFolderId, switchNode, triggerFolderRefresh, activeNodeId, contextItems, toggleContextItem, nodesById } = useWorkspace();
     const [isOpen, setIsOpen] = useState(false);
@@ -334,7 +350,8 @@ function FolderItem({
     const [isDeleteOpen, setIsDeleteOpen] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
 
-    const hasChildren = (folder.children && folder.children.length > 0) || (chatsMap.has(folder.id) && chatsMap.get(folder.id)!.length > 0);
+    const showDraftHere = newChatDraft.trim().length > 0 && draftFolderId === folder.id;
+    const hasChildren = (folder.children && folder.children.length > 0) || (chatsMap.has(folder.id) && chatsMap.get(folder.id)!.length > 0) || showDraftHere;
 
     // Draggable
     const { attributes, listeners, setNodeRef: setDraggableRef, isDragging } = useDraggable({
@@ -358,6 +375,13 @@ function FolderItem({
         }
         return () => clearTimeout(timeout);
     }, [isOver, isOpen]);
+
+    // Auto-expand when this folder becomes the draft target
+    useEffect(() => {
+        if (showDraftHere && !isOpen) {
+            setIsOpen(true);
+        }
+    }, [showDraftHere]);
 
     const handleCreateSubfolder = async () => {
         if (!subfolderName.trim()) return;
@@ -514,11 +538,12 @@ function FolderItem({
 
             {isOpen && (
                 <div className="border-l ml-3 pl-1">
+                    {showDraftHere && <DraftChatItem />}
                     {chatsMap.get(folder.id)?.map(chat => (
                         <DraggableChatItem key={chat.id} node={chat} onSelect={onSelectChat} activeRootId={activeRootId} />
                     ))}
                     {folder.children?.map(child => (
-                        <FolderItem key={child.id} folder={child} chatsMap={chatsMap} onSelectChat={onSelectChat} activeRootId={activeRootId} />
+                        <FolderItem key={child.id} folder={child} chatsMap={chatsMap} onSelectChat={onSelectChat} activeRootId={activeRootId} draftFolderId={draftFolderId} newChatDraft={newChatDraft} />
                     ))}
                 </div>
             )}
@@ -586,6 +611,33 @@ function FolderItem({
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+        </div>
+    );
+}
+
+function DraftChatItem() {
+    const { activeNodeId, switchNode, newChatDraft } = useWorkspace();
+    const isActive = activeNodeId === null;
+
+    const MAX_CHARS = 25;
+    const title = newChatDraft.trim();
+    const displayTitle = title.length > MAX_CHARS ? title.slice(0, MAX_CHARS) + '...' : title;
+
+    return (
+        <div
+            className={cn(
+                "flex items-center gap-2 p-1.5 rounded cursor-pointer text-sm ml-2",
+                isActive
+                    ? "bg-blue-100 text-blue-900 dark:bg-blue-900/40 dark:text-blue-100"
+                    : "text-sidebar-foreground hover:bg-sidebar-accent"
+            )}
+            onClick={() => switchNode(null)}
+        >
+            <MessageSquare size={14} className={cn("opacity-70 flex-shrink-0", isActive && "text-blue-700 dark:text-blue-300 opacity-100")} />
+            <span className="truncate flex-1 italic text-muted-foreground">
+                <span className="not-italic font-medium text-foreground/60">(Draft)</span>{' '}
+                {displayTitle}
+            </span>
         </div>
     );
 }

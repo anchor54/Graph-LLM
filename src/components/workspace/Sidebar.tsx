@@ -55,6 +55,11 @@ export function Sidebar() {
         router.refresh();
     };
 
+    const handleNewChat = () => {
+        setActiveNodeId(null);
+        setActiveFolderId(null);
+    };
+
     return (
         <div className="h-full bg-muted/40 border-r border-sidebar-border flex flex-col p-4">
             <div className="flex flex-col gap-2 mb-4 shrink-0">
@@ -71,10 +76,7 @@ export function Sidebar() {
                 <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => {
-                        setActiveNodeId(null);
-                        setActiveFolderId(null);
-                    }}
+                    onClick={handleNewChat}
                     className="w-full justify-start gap-2 h-9 cursor-pointer"
                     title="New Chat"
                 >

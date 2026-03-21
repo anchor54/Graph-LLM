@@ -6,6 +6,7 @@ import { streamModelResponse, detectProvider } from '@/lib/models';
 import { createClient } from '@/lib/supabase/server';
 import { MultiPassOrchestrator } from '@/lib/multiPass/orchestrator';
 import { MultiPassContext } from '@/lib/multiPass/types';
+import { recordBackendMetrics } from '@/lib/observability/telemetry';
 
 // Helper to fetch ancestor chain
 async function getAncestorChain(nodeId: string, userId: string) {
@@ -34,6 +35,7 @@ async function getAncestorChain(nodeId: string, userId: string) {
 }
 
 export async function POST(request: Request) {
+    const requestStartTime = Date.now();
     try {
         const supabase = await createClient();
         const { data: { user } } = await supabase.auth.getUser();
@@ -43,9 +45,12 @@ export async function POST(request: Request) {
         }
 
         const body = await request.json();
-        const { userPrompt, parentId, folderId, modelMetadata, citations, referencedNodeIds, references } = body;
+        const { id: clientId, userPrompt, parentId, folderId, modelMetadata, citations, referencedNodeIds, references } = body;
 
         // Validate required fields
+        if (!clientId) {
+            return NextResponse.json({ error: 'Node ID is required' }, { status: 400 });
+        }
         if (!userPrompt) {
             return NextResponse.json({ error: 'User prompt is required' }, { status: 400 });
         }
@@ -166,6 +171,7 @@ export async function POST(request: Request) {
         
         const node = await prisma.node.create({
             data: {
+                id: clientId,
                 userPrompt,
                 userId: user.id,
                 parentId: parentId || undefined,
@@ -182,6 +188,7 @@ export async function POST(request: Request) {
         });
 
         // 3. Setup Streaming Response
+        const llmStartTime = Date.now();
         let stream;
         let multiPassMetadata: any = null;
 
@@ -208,20 +215,38 @@ export async function POST(request: Request) {
         // Return a streaming response immediately
         return new Response(new ReadableStream({
             async start(controller) {
+                const streamStartTime = Date.now();
+                const backendProcessingTime = streamStartTime - requestStartTime;
+
                 let fullAiResponse = "";
                 
                 // Send initial node ID to client so it can update the temp ID
-                const initialData = JSON.stringify({ nodeId: node.id });
+                const initialData = JSON.stringify({ nodeId: node.id, backendProcessingTime });
                 controller.enqueue(encoder.encode(`data: ${initialData}\n\n`));
+
+                let firstTokenTime = 0;
 
                 try {
                     for await (const chunk of stream) {
+                        if (firstTokenTime === 0) {
+                            firstTokenTime = Date.now();
+                        }
                         fullAiResponse += chunk;
                         const data = JSON.stringify({ chunk });
                         controller.enqueue(encoder.encode(`data: ${data}\n\n`));
                     }
                     
                     // Stream finished
+                    const streamEndTime = Date.now();
+                    const llmTtfb = firstTokenTime > 0 ? firstTokenTime - llmStartTime : 0;
+                    const llmTotal = streamEndTime - llmStartTime;
+                    
+                    // Record backend metrics
+                    try {
+                        recordBackendMetrics(backendProcessingTime, llmTtfb, llmTotal);
+                    } catch (metricError) {
+                        console.error("Failed to record backend metrics:", metricError);
+                    }
                     
                     // 4. Compute Display Metadata & Update DB
                     try {
@@ -233,6 +258,7 @@ export async function POST(request: Request) {
                                 aiResponse: fullAiResponse,
                                 summary: displayData.summary,
                                 // @ts-ignore: TS stale in editor, fields exist in schema and generated client
+                                nodeTitle: displayData.nodeTitle,
                                 topics: displayData.topics,
                                 classification: displayData.classification,
                                 previewBullets: displayData.previewBullets,
@@ -242,6 +268,18 @@ export async function POST(request: Request) {
                                 } : undefined
                             }
                         });
+
+                        // Send display metadata to client so the graph node title updates immediately
+                        const displayEvent = JSON.stringify({
+                            displayData: {
+                                summary: displayData.summary,
+                                nodeTitle: displayData.nodeTitle,
+                                topics: displayData.topics,
+                                classification: displayData.classification,
+                                previewBullets: displayData.previewBullets,
+                            }
+                        });
+                        controller.enqueue(encoder.encode(`data: ${displayEvent}\n\n`));
                     } catch (updateError: any) {
                         console.error("Failed to update node with display metadata:", updateError);
                         
@@ -257,6 +295,18 @@ export async function POST(request: Request) {
                                 }
                             });
                             console.log("Recovered with fallback update (basic summary only).");
+
+                            // Send fallback summary to client
+                            const fallbackEvent = JSON.stringify({
+                                displayData: {
+                                    summary: fallbackTitle,
+                                    nodeTitle: fallbackTitle,
+                                    topics: [],
+                                    classification: 'insight',
+                                    previewBullets: [],
+                                }
+                            });
+                            controller.enqueue(encoder.encode(`data: ${fallbackEvent}\n\n`));
                         } catch (fallbackError) {
                             console.error("Critical: Failed to update node even with fallback.", fallbackError);
                         }

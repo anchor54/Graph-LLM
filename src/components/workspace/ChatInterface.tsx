@@ -149,6 +149,7 @@ export function ChatInterface() {
         switchNode,
         nodesById,
         addNode,
+        addNodeAndSwitch,
         updateNode,
         triggerGraphRefresh,
         triggerFolderRefresh,
@@ -317,17 +318,11 @@ export function ChatInterface() {
         const activeMessage = messages.length > 0 ? messages[messages.length - 1] : null;
         let parentId = activeMessage?.id || null;
 
-        // Prevent parenting to a temp node if possible, though strict usage shouldn't happen here
-        // as we replace temp IDs. But just in case:
-        if (parentId?.startsWith('temp-')) {
-            // Fallback or wait? For now, assume previous flow finished.
-        }
-
-        const tempId = `temp-${Date.now()}`;
+        const nodeId = crypto.randomUUID();
 
         // Optimistically add user message to UI
         const optimisticNode: Node = {
-            id: tempId,
+            id: nodeId,
             userPrompt: userPrompt,
             aiResponse: '',
             createdAt: new Date().toISOString(),
@@ -340,9 +335,10 @@ export function ChatInterface() {
             summary: null
         } as any;
 
-        addNode(optimisticNode);
-        switchNode(tempId);
+        addNodeAndSwitch(optimisticNode);
         setActiveCitations([]);
+
+        const requestStartTime = Date.now();
 
         try {
             // Resolve Context Items to Node IDs
@@ -370,8 +366,9 @@ export function ChatInterface() {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
+                    id: nodeId,
                     userPrompt,
-                    parentId: parentId, // Use the ID we linked the temp node to
+                    parentId: parentId,
                     folderId: optimisticNode.folderId,
                     modelMetadata: { model: selectedModel },
                     citations: optimisticNode.citations,
@@ -391,10 +388,18 @@ export function ChatInterface() {
             const decoder = new TextDecoder();
             let aiResponse = '';
             let realNodeId = '';
+            
+            let firstChunkTime = 0;
+            let backendProcessingTime = 0;
 
             if (reader) {
                 while (true) {
                     const { done, value } = await reader.read();
+                    
+                    if (!done && firstChunkTime === 0) {
+                        firstChunkTime = Date.now();
+                    }
+                    
                     if (done) break;
 
                     const chunk = decoder.decode(value);
@@ -404,39 +409,24 @@ export function ChatInterface() {
                         if (line.startsWith('data: ')) {
                             try {
                                 const data = JSON.parse(line.substring(6));
+                                
+                                if (data.backendProcessingTime) {
+                                    backendProcessingTime = data.backendProcessingTime;
+                                }
+                                
                                 if (data.chunk) {
                                     aiResponse += data.chunk;
-
-                                    // Update the optimistic node (tempId)
-                                    // AND if we already have the real ID, update that too or switch?
-                                    // Actually, let's keep updating the temp node until we are done, 
-                                    // OR if we have the real ID, we should swap.
-
-                                    if (realNodeId) {
-                                        updateNode(realNodeId, { aiResponse });
-                                    } else {
-                                        updateNode(tempId, { aiResponse });
-                                    }
+                                    updateNode(nodeId, { aiResponse });
                                 }
-                                if (data.nodeId) {
-                                    realNodeId = data.nodeId;
 
-                                    // Create the real node, copying state from temp
-                                    // We can just add it. The ancestry path will then show BOTH if we aren't careful?
-                                    // No, switchNode changes the active path.
-                                    // But if we want to seamless swap:
-                                    const realNode: Node = {
-                                        ...optimisticNode,
-                                        id: realNodeId,
-                                        aiResponse: aiResponse // Ensure we have latest
-                                    };
-                                    addNode(realNode);
-
-                                    // Switch to real node
-                                    switchNode(realNodeId);
-
-                                    // Note: The temp node remains in nodesById but is no longer in the active path
-                                    // because the real node's parent is the same.
+                                if (data.displayData) {
+                                    updateNode(nodeId, {
+                                        summary: data.displayData.summary,
+                                        nodeTitle: data.displayData.nodeTitle,
+                                        topics: data.displayData.topics,
+                                        classification: data.displayData.classification,
+                                        previewBullets: data.displayData.previewBullets,
+                                    } as any);
                                 }
                             } catch (e) {
                                 console.error('Error parsing stream chunk', e);
@@ -444,6 +434,25 @@ export function ChatInterface() {
                         }
                     }
                 }
+                
+                // Metrics Logic
+                const streamEndTime = Date.now();
+                const clientTtfb = firstChunkTime > 0 ? firstChunkTime - requestStartTime : 0;
+                const clientTotalDuration = streamEndTime - requestStartTime;
+                const networkLatency = backendProcessingTime > 0 ? Math.max(0, clientTtfb - backendProcessingTime) : 0;
+                
+                // Log and send
+                console.log('[Metrics]', { clientTtfb, clientTotalDuration, networkLatency, backendProcessingTime });
+                
+                fetch('/api/metrics', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        client_ttfb: clientTtfb,
+                        client_total_duration: clientTotalDuration,
+                        network_latency: networkLatency
+                    })
+                }).catch(err => console.error("Metrics send error:", err));
             }
 
             triggerGraphRefresh(); // Sync fully with DB

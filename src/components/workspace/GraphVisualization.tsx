@@ -417,7 +417,7 @@ export function GraphVisualization() {
         let currentYOffset = 0;
 
         // 1. Build Main Active Graph from Memory
-        const activeGraphNodes = Array.from(nodesById.values());
+        const activeGraphNodes = activeNodeId ? Array.from(nodesById.values()) : [];
 
         if (activeGraphNodes.length > 0) {
             const childrenCounts = getChildrenCounts(nodesById);
@@ -459,7 +459,7 @@ export function GraphVisualization() {
                     type: 'custom',
                     position: { x: 0, y: 0 },
                     data: {
-                        label: n.summary || (n.userPrompt ? `User: ${n.userPrompt}` : `AI: ${n.aiResponse || '...'}`),
+                        label: n.nodeTitle || n.summary || (n.userPrompt ? `User: ${n.userPrompt}` : `AI: ${n.aiResponse || '...'}`),
                         isActive: n.id === activeNodeId,
                         isHovered: false,
                         isCollapsed: collapsedNodeIds.has(n.id),
@@ -544,6 +544,16 @@ export function GraphVisualization() {
             if (layouted.bounds.height > 0) {
                 currentYOffset += layouted.bounds.height + 100; // Spacing
             }
+        } else if (draftInput) {
+            const draftFlowNodes: Node[] = [{
+                id: 'draft-node',
+                type: 'custom',
+                position: { x: 0, y: 0 },
+                data: { isDraft: true, parentId: null, draftText: draftInput }
+            }];
+            const layouted = getLayoutedElements(draftFlowNodes, [], 'TB', { x: 0, y: currentYOffset });
+            allNodes = [...allNodes, ...layouted.nodes];
+            allEdges = [...allEdges, ...layouted.edges];
         }
 
         // 2. Resolve Referenced Nodes
@@ -644,7 +654,7 @@ export function GraphVisualization() {
                 type: 'custom',
                 position: { x: 0, y: 0 },
                 data: {
-                    label: n.summary || (n.userPrompt ? `User: ${n.userPrompt}` : `AI: ${n.aiResponse || '...'}`),
+                    label: n.nodeTitle || n.summary || (n.userPrompt ? `User: ${n.userPrompt}` : `AI: ${n.aiResponse || '...'}`),
                     isActive: false,
                     isHovered: false,
                     isReference: true,
@@ -701,7 +711,7 @@ export function GraphVisualization() {
                 type: 'custom',
                 position: { x: xPosition, y: currentYOffset },
                 data: {
-                    label: nodeData.summary || (nodeData.userPrompt ? `User: ${nodeData.userPrompt}` : `AI: ${nodeData.aiResponse || '...'}`),
+                    label: nodeData.nodeTitle || nodeData.summary || (nodeData.userPrompt ? `User: ${nodeData.userPrompt}` : `AI: ${nodeData.aiResponse || '...'}`),
                     isActive: false,
                     isReference: true,
                     topics: nodeData.topics,
@@ -785,14 +795,6 @@ export function GraphVisualization() {
             switchNode(node.id);
         }
     };
-
-    if (!activeNodeId && contextItems.length === 0 && !draftInput) {
-        return (
-            <div className="h-full bg-background border-l border-border p-4 flex items-center justify-center text-muted-foreground">
-                Select a chat or add contexts to view
-            </div>
-        );
-    }
 
     return (
         <div className="h-full bg-background border-l border-border w-full relative">

@@ -20,6 +20,7 @@ model Node {
   parentId       String?
   folderId       String?
   summary        String?
+  nodeTitle      String?
   userPrompt     String
   aiResponse     String?
   modelMetadata  Json?
