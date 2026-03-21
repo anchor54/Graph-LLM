@@ -7,7 +7,7 @@
     "dev": "next dev",
     "db:reset": "node scripts/prisma-safe.js migrate reset --force",
     "db:seed-models-prod": "node scripts/seed-models.js",
-    "build": "next build",
+    "build": "prisma migrate deploy && next build",
     "postinstall": "prisma generate",
     "start": "next start",
     "lint": "eslint"
